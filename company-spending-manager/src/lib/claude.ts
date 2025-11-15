@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 // MCP Server configuration for Locus + our custom Expenses server
-const mcpServers = {
+const mcpServers: any = {
   'locus': {
     type: 'http' as const,
     url: 'https://mcp.paywithlocus.com/mcp',
@@ -11,11 +11,8 @@ const mcpServers = {
     }
   },
   'expenses': {
-    type: 'http' as const,
-    url: process.env.EXPENSES_MCP_URL || 'http://localhost:3000/api/mcp',
-    headers: {
-      'Content-Type': 'application/json'
-    }
+    type: 'sse' as const,
+    url: 'https://dev.excused.ai/sse'
   }
 };
 

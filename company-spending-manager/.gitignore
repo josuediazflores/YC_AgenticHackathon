@@ -46,3 +46,15 @@ next-env.d.ts
 # database
 *.db
 *.db-journal
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+*.egg-info/
