@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { expenseOperations, paymentOperations } from '@/lib/db';
 
 type Params = {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 };
 
 export async function POST(request: NextRequest, { params }: Params) {
   try {
-    const expenseId = parseInt(params.id);
+    const { id: idStr } = await params;
+    const expenseId = parseInt(idStr);
     const expense = expenseOperations.getById(expenseId);
     
     if (!expense) {

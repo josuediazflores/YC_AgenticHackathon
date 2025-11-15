@@ -73,22 +73,30 @@ export async function extractInvoiceData(invoiceText: string, existingCategories
     : 'No existing categories';
 
   const prompt = `
-    Extract the following information from this invoice text:
-    1. Company name
-    2. Total amount (in USD)
-    3. Sales/billing email
-    4. Due date (format as YYYY-MM-DD)
-    5. Suggested category
+    You are an invoice data extraction assistant. Extract the following information from the provided invoice text:
+    
+    Information to extract:
+    1. Company/Vendor name (the company issuing the invoice)
+    2. Total amount due (in USD, look for total, amount due, balance due)
+    3. Sales/billing email address (look for contact emails, billing@, sales@, info@, support@)
+    4. Due date (convert to YYYY-MM-DD format)
+    5. Category (suggest from existing or create new)
 
     Existing categories: ${categoriesList}
 
-    If the invoice fits an existing category, use that. Otherwise, suggest a new category name.
+    Instructions:
+    - Look for common invoice patterns like "Invoice From:", "Bill To:", "Total:", "Amount Due:", etc.
+    - For emails, look for any email addresses in the document, especially those with domains matching the company
+    - For dates, look for "Due Date:", "Payment Due:", "Due By:" patterns
+    - If the invoice fits an existing category, use that. Otherwise, suggest a descriptive new category.
+    - Be thorough in scanning the entire text for relevant information.
 
     Invoice text:
     ${invoiceText}
 
-    Return the data as a JSON object with these keys: company_name, amount, sales_email, due_date, category, isNewCategory (boolean).
-    If any field cannot be determined, set it to null.
+    Return ONLY a JSON object with these exact keys: company_name, amount (as number), sales_email, due_date (YYYY-MM-DD), category, isNewCategory (boolean).
+    If any field cannot be determined from the text, set it to null.
+    Example: {"company_name": "Acme Corp", "amount": 1500.00, "sales_email": "billing@acme.com", "due_date": "2024-01-15", "category": "Software", "isNewCategory": false}
   `;
 
   const response = await sendClaudeMessage(prompt);
@@ -119,18 +127,34 @@ export async function processExpenseQuery(query: string, context: {
   categories: any[];
   expenses: any[];
   payments: any[];
+  chatHistory?: Array<{ role: string; content: string }>;
 }): Promise<string> {
+  let chatHistoryText = '';
+  if (context.chatHistory && context.chatHistory.length > 0) {
+    chatHistoryText = '\n\nRecent Conversation:\n';
+    context.chatHistory.forEach(msg => {
+      chatHistoryText += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}\n`;
+    });
+  }
+
   const prompt = `
-    You are a helpful spending management assistant. Answer the following query based on the provided data:
+    You are a helpful spending management assistant with access to the company's expense data and conversation history. 
+    Answer the following query based on the provided data and previous conversation context:
     
-    Query: ${query}
+    Current Query: ${query}
+    ${chatHistoryText}
     
-    Context:
+    Available Data:
     - Categories: ${JSON.stringify(context.categories, null, 2)}
     - Expenses: ${JSON.stringify(context.expenses, null, 2)}
     - Recent Payments: ${JSON.stringify(context.payments, null, 2)}
     
-    Provide a clear and concise answer.
+    Instructions:
+    - Reference information from the conversation history when relevant (especially invoice details)
+    - If the user asks about a recently uploaded invoice, use the invoice data from the chat history
+    - Provide clear, concise, and helpful answers
+    - If asked to create an expense, confirm the details first
+    - For payment questions, check the expenses and payment status
   `;
 
   return sendClaudeMessage(prompt);

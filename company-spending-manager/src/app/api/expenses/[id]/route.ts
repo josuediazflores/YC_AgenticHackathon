@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { expenseOperations, paymentOperations } from '@/lib/db';
 
 type Params = {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 };
 
 export async function GET(request: NextRequest, { params }: Params) {
   try {
-    const id = parseInt(params.id);
+    const { id: idStr } = await params;
+    const id = parseInt(idStr);
     const expense = expenseOperations.getById(id);
     
     if (!expense) {
@@ -33,7 +34,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 
 export async function PUT(request: NextRequest, { params }: Params) {
   try {
-    const id = parseInt(params.id);
+    const { id: idStr } = await params;
+    const id = parseInt(idStr);
     const body = await request.json();
     
     if (body.amount !== undefined && body.amount <= 0) {
@@ -65,7 +67,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
 export async function DELETE(request: NextRequest, { params }: Params) {
   try {
-    const id = parseInt(params.id);
+    const { id: idStr } = await params;
+    const id = parseInt(idStr);
     const result = expenseOperations.delete(id);
     
     if (result.changes === 0) {

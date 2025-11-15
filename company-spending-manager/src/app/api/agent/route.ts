@@ -44,10 +44,14 @@ export async function POST(request: NextRequest) {
         const expenses = expenseOperations.getAll();
         const payments = paymentOperations.getAll();
 
+        // Include chat history if provided
+        const chatHistory = data.chatHistory || [];
+
         const response = await processExpenseQuery(data.query, {
           categories,
           expenses,
-          payments: payments.slice(0, 10) // Last 10 payments
+          payments: payments.slice(0, 10), // Last 10 payments
+          chatHistory
         });
 
         return NextResponse.json({ 
@@ -95,7 +99,7 @@ export async function POST(request: NextRequest) {
             recipient_email: email,
             amount,
             memo,
-            transaction_id: transactionId
+            transaction_id: transactionId || undefined
           });
 
           // Update expense status
