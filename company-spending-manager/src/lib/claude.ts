@@ -1,14 +1,20 @@
 import 'dotenv/config';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { IterableResponse } from '@anthropic-ai/claude-agent-sdk';
 
-// MCP Server configuration for Locus
+// MCP Server configuration for Locus + our custom Expenses server
 const mcpServers = {
   'locus': {
     type: 'http' as const,
     url: 'https://mcp.paywithlocus.com/mcp',
     headers: {
       'Authorization': `Bearer ${process.env.LOCUS_API_KEY}`
+    }
+  },
+  'expenses': {
+    type: 'http' as const,
+    url: process.env.EXPENSES_MCP_URL || 'http://localhost:3000/api/mcp',
+    headers: {
+      'Content-Type': 'application/json'
     }
   }
 };
@@ -17,14 +23,15 @@ const mcpServers = {
 const options = {
   mcpServers,
   allowedTools: [
-    'mcp__locus__*',      // Allow all Locus tools
+    'mcp__locus__*',      // Allow all Locus payment tools
+    'mcp__expenses__*',   // Allow all expense management tools
     'mcp__list_resources',
     'mcp__read_resource'
   ],
   apiKey: process.env.ANTHROPIC_API_KEY,
-  // Auto-approve Locus tool usage
+  // Auto-approve tool usage for both Locus and Expenses
   canUseTool: async (toolName: string, input: Record<string, unknown>) => {
-    if (toolName.startsWith('mcp__locus__')) {
+    if (toolName.startsWith('mcp__locus__') || toolName.startsWith('mcp__expenses__')) {
       return {
         behavior: 'allow' as const,
         updatedInput: input
@@ -32,28 +39,40 @@ const options = {
     }
     return {
       behavior: 'deny' as const,
-      message: 'Only Locus tools are allowed'
+      message: 'Only Locus and Expenses tools are allowed'
     };
   }
 };
 
 export async function sendClaudeMessage(prompt: string): Promise<string> {
   let finalResult = '';
-  let mcpConnected = false;
+  let locusConnected = false;
+  let expensesConnected = false;
 
   for await (const message of query({ prompt, options })) {
     if (message.type === 'system' && message.subtype === 'init') {
-      // Check MCP connection status
+      // Check MCP connection status for both servers
       const mcpServersInfo = (message as any).mcp_servers;
-      const mcpStatus = mcpServersInfo?.find((s: any) => s.name === 'locus');
-      mcpConnected = mcpStatus?.status === 'connected';
+      const locusStatus = mcpServersInfo?.find((s: any) => s.name === 'locus');
+      const expensesStatus = mcpServersInfo?.find((s: any) => s.name === 'expenses');
+      
+      locusConnected = locusStatus?.status === 'connected';
+      expensesConnected = expensesStatus?.status === 'connected';
+      
+      console.log('MCP Status:', {
+        locus: locusConnected ? 'connected' : 'disconnected',
+        expenses: expensesConnected ? 'connected' : 'disconnected'
+      });
     } else if (message.type === 'result' && message.subtype === 'success') {
       finalResult = (message as any).result;
     }
   }
 
-  if (!mcpConnected) {
+  if (!locusConnected) {
     console.warn('MCP connection to Locus failed');
+  }
+  if (!expensesConnected) {
+    console.warn('MCP connection to Expenses server failed');
   }
 
   return finalResult;
@@ -122,7 +141,7 @@ export async function extractInvoiceData(invoiceText: string, existingCategories
   return {};
 }
 
-// Helper function to process natural language queries
+// Helper function to process natural language queries using MCP tools
 export async function processExpenseQuery(query: string, context: {
   categories: any[];
   expenses: any[];
@@ -138,23 +157,35 @@ export async function processExpenseQuery(query: string, context: {
   }
 
   const prompt = `
-    You are a helpful spending management assistant with access to the company's expense data and conversation history. 
-    Answer the following query based on the provided data and previous conversation context:
+    You are a helpful spending management assistant with access to MCP tools for managing expenses and categories.
     
-    Current Query: ${query}
+    Current User Query: ${query}
     ${chatHistoryText}
     
-    Available Data:
-    - Categories: ${JSON.stringify(context.categories, null, 2)}
-    - Expenses: ${JSON.stringify(context.expenses, null, 2)}
-    - Recent Payments: ${JSON.stringify(context.payments, null, 2)}
+    Available MCP Tools:
+    - mcp__expenses__list_categories - List all spending categories with totals
+    - mcp__expenses__create_category - Create a new spending category
+    - mcp__expenses__list_expenses - List all expenses (can filter by category or status)
+    - mcp__expenses__create_expense - Create a new expense entry
+    - mcp__expenses__get_expense - Get details of a specific expense
+    - mcp__expenses__update_expense - Update an existing expense
+    - mcp__expenses__delete_expense - Delete an expense
+    - mcp__expenses__get_spending_summary - Get a summary of spending by category
     
     Instructions:
-    - Reference information from the conversation history when relevant (especially invoice details)
-    - If the user asks about a recently uploaded invoice, use the invoice data from the chat history
-    - Provide clear, concise, and helpful answers
-    - If asked to create an expense, confirm the details first
-    - For payment questions, check the expenses and payment status
+    - Use the MCP tools to fetch or modify expense data as needed
+    - Reference information from the conversation history when relevant (especially invoice details from uploads)
+    - If the user asks about expenses, categories, or spending, use the appropriate MCP tool
+    - If asked to create an expense from a recently uploaded invoice, extract the data from chat history and use mcp__expenses__create_expense
+    - For payment-related questions, check the expense payment status
+    - Provide clear, helpful, and concise responses
+    - When creating expenses, make sure to use an existing category_id or create a new category first
+    
+    Example flows:
+    1. "Show me my expenses" → Use mcp__expenses__list_expenses
+    2. "Create an expense for that invoice" → Extract invoice data from chat history, create category if needed, then use mcp__expenses__create_expense
+    3. "How much did we spend on Software?" → Use mcp__expenses__get_spending_summary and filter results
+    4. "Add a new category called Marketing" → Use mcp__expenses__create_category
   `;
 
   return sendClaudeMessage(prompt);

@@ -15,9 +15,28 @@ An AI-powered expense management and payment system for companies, featuring a c
 
 - **Frontend**: Next.js 14 (App Router), React, TypeScript
 - **Styling**: Tailwind CSS, shadcn/ui components, Framer Motion
-- **AI Integration**: Claude Agents SDK with Locus MCP tools
+- **AI Integration**: Claude Agents SDK with Model Context Protocol (MCP)
+  - Custom MCP Server for expense/category management
+  - Locus MCP Server for USDC payments
 - **Database**: SQLite with better-sqlite3
 - **Payments**: Locus for USDC transactions
+
+## Architecture
+
+This app uses a **dual MCP (Model Context Protocol) server architecture**:
+
+1. **Custom Expenses MCP Server** (`/api/mcp`) - Provides tools for:
+   - Creating and managing categories
+   - Creating, updating, and deleting expenses
+   - Querying spending summaries
+   - Filtering expenses by category and status
+
+2. **Locus MCP Server** (external) - Provides tools for:
+   - Sending USDC payments to email addresses
+   - Checking payment context and balances
+   - Managing whitelisted contacts
+
+The Claude Agent SDK connects to both servers simultaneously, allowing the AI to seamlessly perform both expense management and payment operations. For detailed information about the MCP implementation, see [MCP-SERVER.md](./MCP-SERVER.md).
 
 ## Prerequisites
 
@@ -90,11 +109,35 @@ Example commands:
 
 ## API Endpoints
 
+### REST APIs
 - `GET/POST /api/categories` - Category management
 - `GET/POST /api/expenses` - Expense operations
 - `POST /api/expenses/[id]/pay` - Process payments
 - `POST /api/invoices/upload` - Invoice file upload
+- `POST /api/invoices/extract` - Extract text from PDF invoices
 - `POST /api/agent` - Claude AI agent interactions
+
+### MCP Server
+- `GET /api/mcp` - View available MCP tools
+- `POST /api/mcp` - Execute MCP tools (used by Claude Agent SDK)
+  - Method: `tools/list` - List available tools with schemas
+  - Method: `tools/call` - Execute a specific tool
+  - Method: `initialize` - Initialize MCP connection
+
+Example MCP tool call:
+```bash
+curl -X POST http://localhost:3000/api/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "tools/call",
+    "params": {
+      "name": "expenses__list_categories",
+      "arguments": {}
+    }
+  }'
+```
+
+See [MCP-SERVER.md](./MCP-SERVER.md) for detailed MCP documentation.
 
 ## Project Structure
 
