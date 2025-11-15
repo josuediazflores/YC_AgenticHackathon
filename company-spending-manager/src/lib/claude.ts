@@ -154,38 +154,83 @@ export async function processExpenseQuery(query: string, context: {
   }
 
   const prompt = `
-    You are a helpful spending management assistant with access to MCP tools for managing expenses and categories.
+    You are a helpful spending management assistant with access to MCP tools for managing expenses and making payments.
     
     Current User Query: ${query}
     ${chatHistoryText}
     
-    Available MCP Tools:
-    - mcp__expenses__list_categories - List all spending categories with totals
-    - mcp__expenses__create_category - Create a new spending category
-    - mcp__expenses__list_expenses - List all expenses (can filter by category or status)
-    - mcp__expenses__create_expense - Create a new expense entry
-    - mcp__expenses__get_expense - Get details of a specific expense
-    - mcp__expenses__update_expense - Update an existing expense
-    - mcp__expenses__delete_expense - Delete an expense
-    - mcp__expenses__get_spending_summary - Get a summary of spending by category
+    Available Expense Management Tools (mcp__expenses__*):
+    - list_categories - List all spending categories with totals
+    - create_category - Create a new spending category
+    - list_expenses - List all expenses (can filter by category or status)
+    - create_expense - Create a new expense entry
+    - get_expense - Get details of a specific expense
+    - update_expense - Update an existing expense (including status change to 'paid')
+    - delete_expense - Delete an expense
+    - get_spending_summary - Get a summary of spending by category
+    
+    Available Payment Tools (mcp__locus__*):
+    - send_to_email - Send USDC payment to an email address
+      Arguments: {amount: number, recipient_email: string, memo?: string}
+    - get_payment_context - Get current payment budget and whitelisted contacts
     
     Instructions:
-    - Use the MCP tools to fetch or modify expense data as needed
-    - Reference information from the conversation history when relevant (especially invoice details from uploads)
-    - If the user asks about expenses, categories, or spending, use the appropriate MCP tool
-    - If asked to create an expense from a recently uploaded invoice, extract the data from chat history and use mcp__expenses__create_expense
-    - For payment-related questions, check the expense payment status
-    - Provide clear, helpful, and concise responses
-    - When creating expenses, make sure to use an existing category_id or create a new category first
+    - Use MCP tools to fetch or modify expense data
+    - Reference conversation history for context (especially invoice details)
+    - When user asks to PAY an expense:
+      1. Find the expense using list_expenses or get_expense
+      2. Use mcp__locus__send_to_email to send payment
+      3. Update expense status to 'paid' using update_expense
+    - When creating expenses, ensure category exists or create it first
     
-    Example flows:
-    1. "Show me my expenses" → Use mcp__expenses__list_expenses
-    2. "Create an expense for that invoice" → Extract invoice data from chat history, create category if needed, then use mcp__expenses__create_expense
-    3. "How much did we spend on Software?" → Use mcp__expenses__get_spending_summary and filter results
-    4. "Add a new category called Marketing" → Use mcp__expenses__create_category
+    CRITICAL: You MUST respond with ONLY valid JSON in this exact format:
+    {
+      "response": "your helpful message to the user here",
+      "expense": {
+        "company": "company name",
+        "amount": "1.99",
+        "email": "email@example.com",
+        "status": "pending|paid"
+      }
+    }
+    
+    The "expense" field should be:
+    - null if not relevant to current conversation
+    - An object with expense details if you're showing/creating/updating an expense
+    - Used when user uploads invoice, asks about specific expense, creates expense, or pays
+    
+    IMPORTANT: When "expense" is NOT null, do NOT repeat the expense details in "response".
+    The expense card will display the details automatically. Just say something conversational.
+    
+    Example responses:
+    1. User: "Show me my expenses" → {"response": "You have 3 pending expenses totaling $2,500", "expense": null}
+    2. User uploads invoice → {"response": "I've extracted the invoice details for you. Would you like me to create this expense?", "expense": {"company": "TechSupplies", "amount": "891.00", "email": "billing@tech.com", "status": "pending"}}
+    3. User: "Pay expense #5" → {"response": "Payment sent successfully! The expense has been marked as paid.", "expense": {"company": "TechSupplies", "amount": "891.00", "email": "billing@tech.com", "status": "paid"}}
+    
+    BAD: "**Invoice Details:** Company: X, Amount: $Y..." ← DON'T do this when expense object exists
+    GOOD: "I've processed the invoice for you!" ← Keep it conversational
+    
+    Return ONLY the JSON, no markdown, no extra text.
   `;
 
-  return sendClaudeMessage(prompt);
+  const result = await sendClaudeMessage(prompt);
+  
+  // Extract JSON from response
+  try {
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return JSON.stringify(parsed);
+    }
+  } catch (e) {
+    // If JSON parsing fails, wrap in default format
+    return JSON.stringify({
+      response: result,
+      expense: null
+    });
+  }
+  
+  return result;
 }
 
 // Helper function to get payment context from Locus

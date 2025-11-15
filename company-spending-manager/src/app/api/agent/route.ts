@@ -54,10 +54,22 @@ export async function POST(request: NextRequest) {
           chatHistory
         });
 
-        return NextResponse.json({ 
-          success: true, 
-          response 
-        });
+        // Parse JSON response
+        try {
+          const parsed = JSON.parse(response);
+          return NextResponse.json({ 
+            success: true, 
+            response: parsed.response,
+            expense: parsed.expense || null
+          });
+        } catch (e) {
+          // Fallback if JSON parsing fails
+          return NextResponse.json({ 
+            success: true, 
+            response,
+            expense: null
+          });
+        }
       }
 
       case 'get_payment_context': {
