@@ -11,7 +11,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const { id: idStr } = await params;
     const expenseId = parseInt(idStr);
-    const expense = expenseOperations.getById(expenseId);
+    const expense = expenseOperations.getById(expenseId) as any;
     
     if (!expense) {
       return NextResponse.json(

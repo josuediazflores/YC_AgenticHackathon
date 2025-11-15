@@ -17,6 +17,12 @@ interface Message {
     url: string;
     processing?: boolean;
   };
+  expense?: {
+    company: string;
+    amount: string;
+    email: string;
+    status: string;
+  } | null;
 }
 
 export default function AskPage() {
@@ -465,6 +471,7 @@ export default function AskPage() {
             type: "assistant",
             content: data.response || "I couldn't process that request. Please try again.",
             timestamp: new Date(),
+            expense: data.expense || null,
           };
 
           setMessages(prev => {

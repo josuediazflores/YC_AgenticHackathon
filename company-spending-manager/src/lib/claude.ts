@@ -1,15 +1,18 @@
 import 'dotenv/config';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { IterableResponse } from '@anthropic-ai/claude-agent-sdk';
 
-// MCP Server configuration for Locus
-const mcpServers = {
+// MCP Server configuration for Locus + our custom Expenses server
+const mcpServers: any = {
   'locus': {
     type: 'http' as const,
     url: 'https://mcp.paywithlocus.com/mcp',
     headers: {
       'Authorization': `Bearer ${process.env.LOCUS_API_KEY}`
     }
+  },
+  'expenses': {
+    type: 'sse' as const,
+    url: 'https://dev.excused.ai/sse'
   }
 };
 
@@ -17,14 +20,15 @@ const mcpServers = {
 const options = {
   mcpServers,
   allowedTools: [
-    'mcp__locus__*',      // Allow all Locus tools
+    'mcp__locus__*',      // Allow all Locus payment tools
+    'mcp__expenses__*',   // Allow all expense management tools
     'mcp__list_resources',
     'mcp__read_resource'
   ],
   apiKey: process.env.ANTHROPIC_API_KEY,
-  // Auto-approve Locus tool usage
+  // Auto-approve tool usage for both Locus and Expenses
   canUseTool: async (toolName: string, input: Record<string, unknown>) => {
-    if (toolName.startsWith('mcp__locus__')) {
+    if (toolName.startsWith('mcp__locus__') || toolName.startsWith('mcp__expenses__')) {
       return {
         behavior: 'allow' as const,
         updatedInput: input
@@ -32,28 +36,40 @@ const options = {
     }
     return {
       behavior: 'deny' as const,
-      message: 'Only Locus tools are allowed'
+      message: 'Only Locus and Expenses tools are allowed'
     };
   }
 };
 
 export async function sendClaudeMessage(prompt: string): Promise<string> {
   let finalResult = '';
-  let mcpConnected = false;
+  let locusConnected = false;
+  let expensesConnected = false;
 
   for await (const message of query({ prompt, options })) {
     if (message.type === 'system' && message.subtype === 'init') {
-      // Check MCP connection status
+      // Check MCP connection status for both servers
       const mcpServersInfo = (message as any).mcp_servers;
-      const mcpStatus = mcpServersInfo?.find((s: any) => s.name === 'locus');
-      mcpConnected = mcpStatus?.status === 'connected';
+      const locusStatus = mcpServersInfo?.find((s: any) => s.name === 'locus');
+      const expensesStatus = mcpServersInfo?.find((s: any) => s.name === 'expenses');
+      
+      locusConnected = locusStatus?.status === 'connected';
+      expensesConnected = expensesStatus?.status === 'connected';
+      
+      console.log('MCP Status:', {
+        locus: locusConnected ? 'connected' : 'disconnected',
+        expenses: expensesConnected ? 'connected' : 'disconnected'
+      });
     } else if (message.type === 'result' && message.subtype === 'success') {
       finalResult = (message as any).result;
     }
   }
 
-  if (!mcpConnected) {
+  if (!locusConnected) {
     console.warn('MCP connection to Locus failed');
+  }
+  if (!expensesConnected) {
+    console.warn('MCP connection to Expenses server failed');
   }
 
   return finalResult;
@@ -122,7 +138,7 @@ export async function extractInvoiceData(invoiceText: string, existingCategories
   return {};
 }
 
-// Helper function to process natural language queries
+// Helper function to process natural language queries using MCP tools
 export async function processExpenseQuery(query: string, context: {
   categories: any[];
   expenses: any[];
@@ -138,26 +154,83 @@ export async function processExpenseQuery(query: string, context: {
   }
 
   const prompt = `
-    You are a helpful spending management assistant with access to the company's expense data and conversation history. 
-    Answer the following query based on the provided data and previous conversation context:
+    You are a helpful spending management assistant with access to MCP tools for managing expenses and making payments.
     
-    Current Query: ${query}
+    Current User Query: ${query}
     ${chatHistoryText}
     
-    Available Data:
-    - Categories: ${JSON.stringify(context.categories, null, 2)}
-    - Expenses: ${JSON.stringify(context.expenses, null, 2)}
-    - Recent Payments: ${JSON.stringify(context.payments, null, 2)}
+    Available Expense Management Tools (mcp__expenses__*):
+    - list_categories - List all spending categories with totals
+    - create_category - Create a new spending category
+    - list_expenses - List all expenses (can filter by category or status)
+    - create_expense - Create a new expense entry
+    - get_expense - Get details of a specific expense
+    - update_expense - Update an existing expense (including status change to 'paid')
+    - delete_expense - Delete an expense
+    - get_spending_summary - Get a summary of spending by category
+    
+    Available Payment Tools (mcp__locus__*):
+    - send_to_email - Send USDC payment to an email address
+      Arguments: {amount: number, recipient_email: string, memo?: string}
+    - get_payment_context - Get current payment budget and whitelisted contacts
     
     Instructions:
-    - Reference information from the conversation history when relevant (especially invoice details)
-    - If the user asks about a recently uploaded invoice, use the invoice data from the chat history
-    - Provide clear, concise, and helpful answers
-    - If asked to create an expense, confirm the details first
-    - For payment questions, check the expenses and payment status
+    - Use MCP tools to fetch or modify expense data
+    - Reference conversation history for context (especially invoice details)
+    - When user asks to PAY an expense:
+      1. Find the expense using list_expenses or get_expense
+      2. Use mcp__locus__send_to_email to send payment
+      3. Update expense status to 'paid' using update_expense
+    - When creating expenses, ensure category exists or create it first
+    
+    CRITICAL: You MUST respond with ONLY valid JSON in this exact format:
+    {
+      "response": "your helpful message to the user here",
+      "expense": {
+        "company": "company name",
+        "amount": "1.99",
+        "email": "email@example.com",
+        "status": "pending|paid"
+      }
+    }
+    
+    The "expense" field should be:
+    - null if not relevant to current conversation
+    - An object with expense details if you're showing/creating/updating an expense
+    - Used when user uploads invoice, asks about specific expense, creates expense, or pays
+    
+    IMPORTANT: When "expense" is NOT null, do NOT repeat the expense details in "response".
+    The expense card will display the details automatically. Just say something conversational.
+    
+    Example responses:
+    1. User: "Show me my expenses" → {"response": "You have 3 pending expenses totaling $2,500", "expense": null}
+    2. User uploads invoice → {"response": "I've extracted the invoice details for you. Would you like me to create this expense?", "expense": {"company": "TechSupplies", "amount": "891.00", "email": "billing@tech.com", "status": "pending"}}
+    3. User: "Pay expense #5" → {"response": "Payment sent successfully! The expense has been marked as paid.", "expense": {"company": "TechSupplies", "amount": "891.00", "email": "billing@tech.com", "status": "paid"}}
+    
+    BAD: "**Invoice Details:** Company: X, Amount: $Y..." ← DON'T do this when expense object exists
+    GOOD: "I've processed the invoice for you!" ← Keep it conversational
+    
+    Return ONLY the JSON, no markdown, no extra text.
   `;
 
-  return sendClaudeMessage(prompt);
+  const result = await sendClaudeMessage(prompt);
+  
+  // Extract JSON from response
+  try {
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return JSON.stringify(parsed);
+    }
+  } catch (e) {
+    // If JSON parsing fails, wrap in default format
+    return JSON.stringify({
+      response: result,
+      expense: null
+    });
+  }
+  
+  return result;
 }
 
 // Helper function to get payment context from Locus

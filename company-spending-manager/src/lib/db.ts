@@ -160,8 +160,8 @@ export const expenseOperations = {
     status?: string;
     invoice_url?: string;
   }) => {
-    const fields = [];
-    const values = [];
+    const fields: string[] = [];
+    const values: any[] = [];
     
     Object.entries(data).forEach(([key, value]) => {
       if (value !== undefined) {
