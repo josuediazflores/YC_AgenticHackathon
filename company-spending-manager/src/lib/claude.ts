@@ -1,7 +1,30 @@
 import 'dotenv/config';
-import Anthropic from '@anthropic-ai/sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 
-const anthropic = new Anthropic({
+// MCP Server configuration for Locus + our custom Expenses server
+const mcpServers: any = {
+  'locus': {
+    type: 'http' as const,
+    url: 'https://mcp.paywithlocus.com/mcp',
+    headers: {
+      'Authorization': `Bearer ${process.env.LOCUS_API_KEY}`
+    }
+  },
+  'expenses': {
+    type: 'sse' as const,
+    url: 'https://dev.excused.ai/sse'
+  }
+};
+
+// Claude SDK options
+const options = {
+  mcpServers,
+  allowedTools: [
+    'mcp__locus__*',      // Allow all Locus payment tools
+    'mcp__expenses__*',   // Allow all expense management tools
+    'mcp__list_resources',
+    'mcp__read_resource'
+  ],
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
