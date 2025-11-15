@@ -35,13 +35,13 @@ export async function extractInvoiceData(invoiceText: string, existingCategories
   category?: string;
   isNewCategory?: boolean;
 }> {
-  const categoriesList = existingCategories.length > 0 
-    ? existingCategories.join(', ') 
+  const categoriesList = existingCategories.length > 0
+    ? existingCategories.join(', ')
     : 'No existing categories';
 
   const prompt = `
     You are an invoice data extraction assistant. Extract the following information from the provided invoice text:
-    
+
     Information to extract:
     1. Company/Vendor name (the company issuing the invoice)
     2. Total amount due (in USD, look for total, amount due, balance due)
@@ -67,7 +67,7 @@ export async function extractInvoiceData(invoiceText: string, existingCategories
   `;
 
   const response = await sendClaudeMessage(prompt);
-  
+
   try {
     // Extract JSON from the response
     const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -105,17 +105,17 @@ export async function processExpenseQuery(query: string, context: {
   }
 
   const prompt = `
-    You are a helpful spending management assistant with access to the company's expense data and conversation history. 
+    You are a helpful spending management assistant with access to the company's expense data and conversation history.
     Answer the following query based on the provided data and previous conversation context:
-    
+
     Current Query: ${query}
     ${chatHistoryText}
-    
+
     Available Data:
     - Categories: ${JSON.stringify(context.categories, null, 2)}
     - Expenses: ${JSON.stringify(context.expenses, null, 2)}
     - Recent Payments: ${JSON.stringify(context.payments, null, 2)}
-    
+
     Instructions:
     - Reference information from the conversation history when relevant (especially invoice details)
     - If the user asks about a recently uploaded invoice, use the invoice data from the chat history
