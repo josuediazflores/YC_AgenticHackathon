@@ -1,0 +1,139 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { 
+  extractInvoiceData, 
+  processExpenseQuery, 
+  getLocusPaymentContext,
+  sendLocusPayment,
+  sendClaudeMessage 
+} from '@/lib/claude';
+import { categoryOperations, expenseOperations, paymentOperations } from '@/lib/db';
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { action, data } = body;
+
+    switch (action) {
+      case 'extract_invoice': {
+        if (!data?.text) {
+          return NextResponse.json(
+            { error: 'Invoice text is required' },
+            { status: 400 }
+          );
+        }
+
+        const categories = categoryOperations.getAll();
+        const categoryNames = categories.map((c: any) => c.name);
+        const extractedData = await extractInvoiceData(data.text, categoryNames);
+
+        return NextResponse.json({ 
+          success: true, 
+          data: extractedData 
+        });
+      }
+
+      case 'process_query': {
+        if (!data?.query) {
+          return NextResponse.json(
+            { error: 'Query is required' },
+            { status: 400 }
+          );
+        }
+
+        const categories = categoryOperations.getWithSpending();
+        const expenses = expenseOperations.getAll();
+        const payments = paymentOperations.getAll();
+
+        const response = await processExpenseQuery(data.query, {
+          categories,
+          expenses,
+          payments: payments.slice(0, 10) // Last 10 payments
+        });
+
+        return NextResponse.json({ 
+          success: true, 
+          response 
+        });
+      }
+
+      case 'get_payment_context': {
+        const context = await getLocusPaymentContext();
+        return NextResponse.json({ 
+          success: true, 
+          context 
+        });
+      }
+
+      case 'send_payment': {
+        const { email, amount, memo, expense_id } = data;
+        
+        if (!email || !amount || !memo) {
+          return NextResponse.json(
+            { error: 'Email, amount, and memo are required' },
+            { status: 400 }
+          );
+        }
+
+        // Send payment via Locus
+        const paymentResult = await sendLocusPayment(email, amount, memo);
+        
+        // If expense_id provided, update the expense and create payment record
+        if (expense_id) {
+          // Extract transaction ID from payment result if available
+          let transactionId = null;
+          try {
+            const resultMatch = paymentResult.match(/transaction[_\s]?id[:\s]+([a-zA-Z0-9-]+)/i);
+            transactionId = resultMatch ? resultMatch[1] : null;
+          } catch (e) {
+            // Ignore parsing errors
+          }
+
+          // Create payment record
+          paymentOperations.create({
+            expense_id,
+            payment_method: 'locus_usdc',
+            recipient_email: email,
+            amount,
+            memo,
+            transaction_id: transactionId
+          });
+
+          // Update expense status
+          expenseOperations.update(expense_id, { status: 'paid' });
+        }
+
+        return NextResponse.json({ 
+          success: true, 
+          result: paymentResult 
+        });
+      }
+
+      case 'chat': {
+        if (!data?.message) {
+          return NextResponse.json(
+            { error: 'Message is required' },
+            { status: 400 }
+          );
+        }
+
+        const response = await sendClaudeMessage(data.message);
+        return NextResponse.json({ 
+          success: true, 
+          response 
+        });
+      }
+
+      default:
+        return NextResponse.json(
+          { error: 'Invalid action' },
+          { status: 400 }
+        );
+    }
+  } catch (error) {
+    console.error('Agent API error:', error);
+    return NextResponse.json(
+      { error: 'Failed to process request', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
