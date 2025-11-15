@@ -16,7 +16,7 @@ export default function DashboardLayout({
   const links = [
     {
       label: "Ask",
-      href: "/",
+      href: "/ask",
       icon: (
         <MessageSquare className="text-neutral-700 dark:text-neutral-200 h-5 w-5 flex-shrink-0" />
       ),
@@ -82,7 +82,7 @@ export default function DashboardLayout({
 export const Logo = () => {
   return (
     <Link
-      href="/"
+      href="/ask"
       className="font-normal flex space-x-2 items-center text-sm text-black py-1 relative z-20"
     >
       <div className="h-5 w-6 bg-gradient-to-r from-blue-500 to-purple-500 rounded-br-lg rounded-tr-sm rounded-tl-lg rounded-bl-sm flex-shrink-0" />
@@ -100,7 +100,7 @@ export const Logo = () => {
 export const LogoIcon = () => {
   return (
     <Link
-      href="/"
+      href="/ask"
       className="font-normal flex space-x-2 items-center text-sm text-black py-1 relative z-20"
     >
       <div className="h-5 w-6 bg-gradient-to-r from-blue-500 to-purple-500 rounded-br-lg rounded-tr-sm rounded-tl-lg rounded-bl-sm flex-shrink-0" />
