@@ -5,8 +5,17 @@ import { existsSync } from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { categoryOperations, expenseOperations } from '@/lib/db';
 
+// Configure route for file uploads
+export const runtime = 'nodejs';
+export const maxDuration = 60; // 60 seconds for AI processing
+
+// Check for API key
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.error('ANTHROPIC_API_KEY is not set in environment variables');
+}
+
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+  apiKey: process.env.ANTHROPIC_API_KEY || '',
 });
 
 export async function POST(request: NextRequest) {
@@ -21,14 +30,43 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Validate file type
+    // Validate file type (check both MIME type and file extension)
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
-    if (!allowedTypes.includes(file.type)) {
+    const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+    
+    const isValidType = allowedTypes.includes(file.type) || 
+                       (file.type === '' && allowedExtensions.includes(fileExtension)) ||
+                       (file.type === 'application/octet-stream' && fileExtension === '.pdf');
+    
+    if (!isValidType) {
+      console.error('Invalid file type:', { 
+        fileName: file.name, 
+        fileType: file.type, 
+        fileExtension,
+        fileSize: file.size 
+      });
       return NextResponse.json(
-        { error: 'Invalid file type. Please upload an image or PDF.' },
+        { error: `Invalid file type. Please upload an image or PDF. Received: ${file.type || 'unknown'} (${fileExtension})` },
         { status: 400 }
       );
     }
+    
+    // Check file size (limit to 10MB)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      return NextResponse.json(
+        { error: `File too large. Maximum size is 10MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)}MB.` },
+        { status: 400 }
+      );
+    }
+    
+    console.log('Processing file:', { 
+      name: file.name, 
+      type: file.type, 
+      size: file.size,
+      extension: fileExtension 
+    });
     
     // Get existing categories for AI context
     const categories = categoryOperations.getAll();
@@ -44,15 +82,48 @@ export async function POST(request: NextRequest) {
     const filename = `invoice_${timestamp}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
     const filepath = join(uploadsDir, filename);
     
-    const bytes = await file.arrayBuffer();
+    // Read file data
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await file.arrayBuffer();
+      if (!bytes || bytes.byteLength === 0) {
+        return NextResponse.json(
+          { error: 'File is empty or could not be read' },
+          { status: 400 }
+        );
+      }
+    } catch (readError) {
+      console.error('Error reading file:', readError);
+      return NextResponse.json(
+        { error: 'Failed to read file. Please try again.' },
+        { status: 400 }
+      );
+    }
+    
     const buffer = Buffer.from(bytes);
-    await writeFile(filepath, buffer);
+    
+    // Save file to disk
+    try {
+      await writeFile(filepath, buffer);
+      console.log('File saved successfully:', filepath);
+    } catch (writeError) {
+      console.error('Error saving file:', writeError);
+      return NextResponse.json(
+        { error: 'Failed to save file. Please try again.' },
+        { status: 500 }
+      );
+    }
     
     const fileUrl = `/uploads/${filename}`;
     
     // Extract text from PDF if it's a PDF (important for better extraction)
+    // Check both MIME type and file extension
+    const isPDF = file.type === 'application/pdf' || 
+                  fileExtension === '.pdf' ||
+                  (file.type === 'application/octet-stream' && fileExtension === '.pdf');
+    
     let extractedText = '';
-    if (file.type === 'application/pdf') {
+    if (isPDF) {
       try {
         const pdfParse = require('pdf-parse-fork');
         const pdfData = await pdfParse(buffer, { max: 0 });
@@ -82,10 +153,22 @@ export async function POST(request: NextRequest) {
       const content: any[] = [];
       
       // For images, use Vision API
-      if (file.type.startsWith('image/')) {
-        const fileBuffer = await file.arrayBuffer();
-        const base64Data = Buffer.from(fileBuffer).toString('base64');
-        const mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+      const isImage = file.type.startsWith('image/') || 
+                     ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(fileExtension);
+      
+      if (isImage) {
+        // Reuse the buffer we already have
+        const base64Data = buffer.toString('base64');
+        // Determine media type from file extension if MIME type is missing
+        let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
+        if (file.type) {
+          mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+        } else {
+          if (fileExtension === '.png') mediaType = 'image/png';
+          else if (fileExtension === '.gif') mediaType = 'image/gif';
+          else if (fileExtension === '.webp') mediaType = 'image/webp';
+          else mediaType = 'image/jpeg';
+        }
         
         content.push({
           type: 'image',
@@ -95,32 +178,19 @@ export async function POST(request: NextRequest) {
             data: base64Data,
           },
         });
-      } else if (file.type === 'application/pdf') {
-        // For PDFs, if we have good text extraction, we can use that
-        // Otherwise, try to send as image (though Claude may not support PDFs directly)
-        // For now, we'll primarily rely on extracted text for PDFs
-        if (extractedText && extractedText.length > 100) {
-          // We have good text extraction, use that primarily
-          console.log('Using extracted PDF text for analysis');
-        } else {
-          // Try sending PDF as base64 image (may not work, but worth trying)
-          try {
-            const fileBuffer = await file.arrayBuffer();
-            const base64Data = Buffer.from(fileBuffer).toString('base64');
-            
-            content.push({
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: base64Data,
-              },
-            });
-            console.log('Attempting to send PDF as image to Claude Vision');
-          } catch (pdfError) {
-            console.error('Error preparing PDF for Claude Vision:', pdfError);
-          }
+      } else if (isPDF) {
+        // For PDFs, we cannot send them directly to Claude Vision API
+        // Claude Vision only accepts image types (jpeg, png, gif, webp)
+        // Instead, we'll use the extracted text from the PDF
+        console.log('PDF detected - using text extraction instead of Vision API');
+        
+        if (!extractedText || extractedText.length < 50) {
+          // If text extraction failed or returned very little text, we can't process it
+          throw new Error('Could not extract sufficient text from PDF. The PDF might be image-based or corrupted. Please try uploading a PDF with selectable text or convert it to an image first.');
         }
+        
+        console.log(`Using ${extractedText.length} characters of extracted text for analysis`);
+        // We'll add the extracted text to the prompt below
       }
       
       // For PDFs, we also include extracted text if available for better context
@@ -130,7 +200,7 @@ export async function POST(request: NextRequest) {
         ? categoryNames.join(', ') 
         : 'No existing categories';
       
-      const prompt = `You are an expert at extracting information from invoices and receipts. Analyze this ${file.type === 'application/pdf' ? 'PDF invoice/receipt document' : 'invoice/receipt image'} carefully and extract the following information:
+      const prompt = `You are an expert at extracting information from invoices and receipts. ${isPDF ? 'Analyze the extracted text from a PDF invoice/receipt document' : 'Analyze this invoice/receipt image'} carefully and extract the following information:
 
 REQUIRED FIELDS (must extract these):
 1. company_name: The name of the company/vendor issuing the invoice. Look for:
@@ -173,7 +243,7 @@ EXTRACTION INSTRUCTIONS:
 - Be very thorough - invoices often have information in multiple places
 - If information is clearly visible, you MUST extract it - don't return null unless truly not found
 
-${extractedText && extractedText.length > 50 ? `\n\n=== EXTRACTED TEXT FROM PDF ===\n${extractedText}\n=== END OF EXTRACTED TEXT ===\n\nUse this extracted text to find all the required information. The text above contains all the information from the invoice.` : file.type === 'application/pdf' && (!extractedText || extractedText.length < 50) ? '\n\nNote: PDF text extraction was limited or unavailable. Please analyze the document carefully.' : ''}
+${isPDF && extractedText && extractedText.length > 50 ? `\n\n=== EXTRACTED TEXT FROM PDF ===\n${extractedText.substring(0, 5000)}${extractedText.length > 5000 ? '...' : ''}\n=== END OF EXTRACTED TEXT ===\n\nExtract all required information from the text above. This is the complete text content from the PDF invoice.` : isPDF ? '\n\nERROR: PDF text extraction failed. Cannot process this PDF without extracted text.' : ''}
 
 CRITICAL: You MUST extract company_name and amount. If you cannot find these, return them as null but explain why in a comment.
 
@@ -185,8 +255,16 @@ Example response: {"company_name": "Acme Corp", "amount": 1500.00, "sales_email"
         text: prompt,
       });
       
+      // Check API key before making request
+      if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.trim() === '') {
+        console.error('ANTHROPIC_API_KEY is missing or empty');
+        throw new Error('ANTHROPIC_API_KEY is not configured. Please create a .env.local file in the project root with: ANTHROPIC_API_KEY=your_api_key_here');
+      }
+      
       // Call Claude API
       console.log('Sending request to Claude with content types:', content.map(c => c.type));
+      console.log('Content length:', JSON.stringify(content).length, 'bytes');
+      
       const response = await anthropic.messages.create({
         model: 'claude-3-5-sonnet-20241022',
         max_tokens: 4096,
@@ -230,8 +308,43 @@ Example response: {"company_name": "Acme Corp", "amount": 1500.00, "sales_email"
       console.log('Extracted invoice data:', invoiceData);
     } catch (error) {
       console.error('Error processing with Claude:', error);
+      
+      // Check for specific error types
+      let errorMessage = 'Failed to process invoice with AI';
+      let errorDetails = error instanceof Error ? error.message : String(error);
+      
+      if (error instanceof Error) {
+        // Check for API key errors
+        if (error.message.includes('api_key') || error.message.includes('API key')) {
+          errorMessage = 'Claude API key is missing or invalid';
+          errorDetails = 'Please check your ANTHROPIC_API_KEY environment variable';
+        }
+        // Check for rate limit errors
+        else if (error.message.includes('rate_limit') || error.message.includes('429')) {
+          errorMessage = 'Claude API rate limit exceeded';
+          errorDetails = 'Please try again in a few moments';
+        }
+        // Check for authentication errors
+        else if (error.message.includes('401') || error.message.includes('authentication')) {
+          errorMessage = 'Claude API authentication failed';
+          errorDetails = 'Please check your API key configuration';
+        }
+        // Check for file size errors
+        else if (error.message.includes('too large') || error.message.includes('size')) {
+          errorMessage = 'File is too large for Claude API';
+          errorDetails = 'Please try a smaller file or compress the image/PDF';
+        }
+        else {
+          errorDetails = error.message;
+        }
+      }
+      
       return NextResponse.json(
-        { error: 'Failed to process invoice with AI', details: error instanceof Error ? error.message : String(error) },
+        { 
+          error: errorMessage, 
+          details: errorDetails,
+          suggestion: 'Please check the server logs for more details or try uploading the invoice again.'
+        },
         { status: 500 }
       );
     }
@@ -296,8 +409,15 @@ Example response: {"company_name": "Acme Corp", "amount": 1500.00, "sales_email"
     
   } catch (error) {
     console.error('Error processing invoice:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
     return NextResponse.json(
-      { error: 'Failed to process invoice', details: error instanceof Error ? error.message : String(error) },
+      { 
+        error: 'Failed to process invoice', 
+        details: errorMessage,
+        stack: process.env.NODE_ENV === 'development' ? errorStack : undefined
+      },
       { status: 500 }
     );
   }
