@@ -760,6 +760,41 @@ Return ONLY a JSON object in this exact format:
                 ) : (
                   <p className="whitespace-pre-wrap">{message.content}</p>
                 )}
+                
+                {/* Expense Card */}
+                {message.expense && (
+                  <div className="mt-3 p-4 rounded-lg bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border border-blue-200 dark:border-blue-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
+                        <span className="text-xl">💼</span>
+                        {message.expense.company}
+                      </h3>
+                      <span className={cn(
+                        "px-2 py-1 rounded-full text-xs font-medium",
+                        message.expense.status === "paid" 
+                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                          : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                      )}>
+                        {message.expense.status === "paid" ? "✓ Paid" : "⏳ Pending"}
+                      </span>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-neutral-600 dark:text-neutral-400">Amount</span>
+                        <span className="font-bold text-lg text-neutral-900 dark:text-neutral-100">
+                          ${message.expense.amount}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-neutral-600 dark:text-neutral-400">Email</span>
+                        <span className="text-neutral-900 dark:text-neutral-100 font-mono text-xs">
+                          {message.expense.email}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 {message.attachment && (
                   <div className="mt-2">
                     {message.attachment.processing ? (
