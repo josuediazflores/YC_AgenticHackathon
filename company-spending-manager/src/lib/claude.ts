@@ -162,6 +162,7 @@ export async function processExpenseQuery(query: string, context: {
     Available Expense Management Tools (mcp__expenses__*):
     - list_categories - List all spending categories with totals
     - create_category - Create a new spending category
+    - update_category_budget - Update the budget limit for a category
     - list_expenses - List all expenses (can filter by category or status)
     - create_expense - Create a new expense entry
     - get_expense - Get details of a specific expense
@@ -195,6 +196,7 @@ export async function processExpenseQuery(query: string, context: {
       2. Use mcp__locus__send_to_email to send payment
       3. Update expense status to 'paid' using update_expense
     - When creating expenses, ensure category exists or create it first
+    - When user asks to change/update a category budget, use update_category_budget
     
     CRITICAL: You MUST respond with ONLY valid JSON in this exact format:
     {

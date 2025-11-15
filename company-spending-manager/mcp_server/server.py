@@ -95,6 +95,45 @@ def create_category(
         
         return f"Category '{name}' created successfully with ID: {category_id}"
 
+@mcp.tool()
+def update_category_budget(
+    category_id: int,
+    budget: float
+) -> str:
+    """
+    Update the budget limit for a specific category.
+    
+    Args:
+        category_id: ID of the category to update
+        budget: New monthly budget limit (set to 0 to remove budget limit)
+    
+    Returns:
+        Success message or error if category not found
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # First check if category exists
+        cursor.execute("SELECT name FROM categories WHERE id = ?", (category_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            return f"Error: Category with ID {category_id} not found"
+        
+        category_name = row["name"]
+        
+        # Update the budget
+        cursor.execute(
+            "UPDATE categories SET budget_limit = ? WHERE id = ?",
+            (budget if budget > 0 else None, category_id)
+        )
+        conn.commit()
+        
+        if budget > 0:
+            return f"Budget for '{category_name}' updated to ${budget:.2f}"
+        else:
+            return f"Budget limit removed for '{category_name}'"
+
 # ============================================================================
 # EXPENSE TOOLS
 # ============================================================================
@@ -373,7 +412,7 @@ if __name__ == "__main__":
     # Run the MCP server with SSE (Server-Sent Events) transport
     print("🚀 Starting Expense Management MCP Server...")
     print(f"📁 Database: {DB_PATH}")
-    print(f"🔧 Tools available: {len(mcp._tool_manager._tools)}")
+    print(f"🔧 Tools available: 9")
     print(f"\n✨ Server ready!")
     print(f"   HTTP SSE: http://localhost:{port}/sse")
     print(f"   Health:   http://localhost:{port}/health")
