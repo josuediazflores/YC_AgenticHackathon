@@ -5,6 +5,7 @@ import { Send, Upload, Loader2, Bot, User, Paperclip, X, FileText, Trash2 } from
 import { useDropzone } from "react-dropzone";
 import { cn } from "@/lib/utils";
 import { InvoiceProcessor } from "@/components/invoice-processor";
+import { TextShimmer } from "@/components/ui/text-shimmer";
 
 interface Message {
   id: string;
@@ -26,6 +27,7 @@ export default function AskPage() {
   const [processingFile, setProcessingFile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const thinkingMessageIdRef = useRef<string | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -67,7 +69,7 @@ export default function AskPage() {
       const userMessage: Message = {
         id: Date.now().toString(),
         type: "user",
-        content: `Uploading invoice...`,
+        content: `Uploading invoice: ${file.name}...`,
         timestamp: new Date(),
         attachment: {
           name: file.name,
@@ -78,119 +80,128 @@ export default function AskPage() {
       setMessages(prev => [...prev, userMessage]);
       
       try {
-        // Upload file
-        const formData = new FormData();
-        formData.append("file", file);
-        
-        const uploadRes = await fetch("/api/invoices/upload", {
-          method: "POST",
-          body: formData,
-        });
-        
-        if (!uploadRes.ok) throw new Error("Upload failed");
-        
-        const uploadData = await uploadRes.json();
-        
-        // Update message with uploaded file URL
-        setMessages(prev => prev.map(msg => 
-          msg.id === userMessage.id 
-            ? { 
-                ...msg, 
-                content: `I've uploaded an invoice: ${file.name}`,
-                attachment: { ...msg.attachment!, url: uploadData.url, processing: false }
-              }
-            : msg
-        ));
-        
-        // Process with agent
+        // Process invoice directly using the improved processing endpoint (handles upload + processing)
         setIsLoading(true);
         
         // Add processing message
         const processingMessage: Message = {
           id: (Date.now() + 1).toString(),
           type: "assistant",
-          content: "Processing your invoice...",
+          content: "Processing your invoice with AI...",
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, processingMessage]);
         
-        // First extract text from PDF/image
-        const extractRes = await fetch("/api/invoices/extract", {
+        // Use the improved invoice processing endpoint that uses Claude Vision
+        const processFormData = new FormData();
+        processFormData.append("file", file);
+        
+        const processRes = await fetch("/api/invoices/process", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileUrl: uploadData.url }),
+          body: processFormData,
         });
         
-        if (!extractRes.ok) {
-          throw new Error("Failed to extract text from invoice");
+        if (!processRes.ok) {
+          let errorData;
+          try {
+            errorData = await processRes.json();
+          } catch {
+            errorData = { error: `Server error: ${processRes.status} ${processRes.statusText}` };
+          }
+          
+          const errorMsg = errorData.error || `Failed to process invoice (${processRes.status})`;
+          const errorDetails = errorData.details || '';
+          const suggestion = errorData.suggestion || '';
+          const details = errorData.details && typeof errorData.details === 'object' ? errorData.details : {};
+          
+          let fullError = errorMsg;
+          if (errorDetails && typeof errorDetails === 'string') {
+            fullError += `\n\n${errorDetails}`;
+          }
+          if (suggestion) {
+            fullError += `\n\n${suggestion}`;
+          }
+          if (details.hasCompanyName === false || details.hasAmount === false) {
+            fullError += `\n\nMissing:`;
+            if (!details.hasCompanyName) fullError += ` Company name`;
+            if (!details.hasAmount) fullError += ` Amount`;
+          }
+          
+          throw new Error(fullError);
         }
         
-        const extractData = await extractRes.json();
+        const processData = await processRes.json();
         
-        // Check if PDF parsing failed
-        if (extractData.text && (extractData.text.includes('PDF_PARSE_ERROR') || extractData.text.includes('PDF_PARSE_EMPTY'))) {
-          // Update processing message with error and instructions
+        // Update user message with file URL if available
+        if (processData.expense && processData.expense.invoice_url) {
           setMessages(prev => prev.map(msg => 
-            msg.id === processingMessage.id 
+            msg.id === userMessage.id 
               ? { 
                   ...msg, 
-                  content: extractData.text.replace('PDF_PARSE_ERROR: ', '⚠️ ').replace('PDF_PARSE_EMPTY: ', '⚠️ ')
+                  content: `I've uploaded an invoice: ${file.name}`,
+                  attachment: { ...msg.attachment!, url: processData.expense.invoice_url, processing: false }
                 }
               : msg
           ));
-          setIsLoading(false);
-          setUploadedFile(null);
-          setProcessingFile(false);
-          return;
         }
         
-        // Then send extracted text to agent
-        const agentRes = await fetch("/api/agent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "extract_invoice",
-            data: { 
-              text: extractData.text || "Could not extract text from invoice",
-              file_url: uploadData.url 
-            },
-          }),
-        });
+        // Create assistant response with structured data
+        let response = "";
         
-        const agentData = await agentRes.json();
-        
-        // Create assistant response with structured data for AI context
-        let response = "I've extracted the following information from your invoice:\n\n";
-        let invoiceContext = "";
-        
-        if (agentData.data) {
-          if (agentData.data.company_name) {
-            response += `**Company:** ${agentData.data.company_name}\n`;
-            invoiceContext += `Company: ${agentData.data.company_name}. `;
+        if (processRes.ok && processData.success && processData.extracted) {
+          const extracted = processData.extracted;
+          
+          response = "✅ I've successfully extracted and processed your invoice!\n\n";
+          
+          if (extracted.company_name) {
+            response += `**Company:** ${extracted.company_name}\n`;
           }
-          if (agentData.data.amount) {
-            response += `**Amount:** $${agentData.data.amount}\n`;
-            invoiceContext += `Amount: $${agentData.data.amount}. `;
+          if (extracted.amount) {
+            response += `**Amount:** $${extracted.amount.toFixed(2)}\n`;
           }
-          if (agentData.data.sales_email) {
-            response += `**Email:** ${agentData.data.sales_email}\n`;
-            invoiceContext += `Email: ${agentData.data.sales_email}. `;
+          if (extracted.sales_email) {
+            response += `**Email:** ${extracted.sales_email}\n`;
           }
-          if (agentData.data.due_date) {
-            response += `**Due Date:** ${agentData.data.due_date}\n`;
-            invoiceContext += `Due Date: ${agentData.data.due_date}. `;
+          if (extracted.due_date) {
+            response += `**Due Date:** ${extracted.due_date}\n`;
           }
-          if (agentData.data.category) {
-            response += `**Category:** ${agentData.data.category}`;
-            if (agentData.data.isNewCategory) response += " (new category)";
+          if (extracted.category) {
+            response += `**Category:** ${extracted.category}`;
+            if (processData.categoryCreated) response += " (new category created)";
             response += "\n";
-            invoiceContext += `Category: ${agentData.data.category}. `;
           }
           
-          // Store the extracted data in the response for future AI reference
-          response += `\n[Invoice Data: ${invoiceContext}]\n\nWould you like me to create this expense?`;
+          response += `\n✅ Expense has been created and saved to your expenses list!`;
+          
+          if (processData.categoryCreated) {
+            response += `\n\n📁 A new category "${extracted.category}" was automatically created.`;
+          }
         } else {
-          response = "I couldn't extract information from this invoice. Please try uploading a clearer image or PDF.";
+          // Handle errors
+          const errorMsg = processData.error || "Failed to process invoice";
+          const suggestion = processData.suggestion || "";
+          const details = processData.details || {};
+          
+          response = `⚠️ ${errorMsg}`;
+          
+          if (suggestion) {
+            response += `\n\n${suggestion}`;
+          }
+          
+          if (details.hasCompanyName === false || details.hasAmount === false) {
+            response += `\n\nMissing required information:`;
+            if (!details.hasCompanyName) response += `\n- Company name`;
+            if (!details.hasAmount) response += `\n- Amount`;
+          }
+          
+          if (processData.extracted) {
+            response += `\n\nI was able to extract:`;
+            const extracted = processData.extracted;
+            if (extracted.company_name) response += `\n- Company: ${extracted.company_name}`;
+            if (extracted.amount) response += `\n- Amount: $${extracted.amount}`;
+            if (extracted.sales_email) response += `\n- Email: ${extracted.sales_email}`;
+            if (extracted.category) response += `\n- Category: ${extracted.category}`;
+          }
         }
         
         // Update processing message with final response
@@ -202,13 +213,23 @@ export default function AskPage() {
         
       } catch (error) {
         console.error("Error processing invoice:", error);
-        const errorMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: "assistant",
-          content: "Sorry, I couldn't process that invoice. Please try again.",
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, errorMessage]);
+        
+        // Update processing message with detailed error
+        let errorContent = "❌ Failed to process invoice. ";
+        
+        if (error instanceof Error) {
+          errorContent += error.message;
+        } else if (typeof error === 'string') {
+          errorContent += error;
+        } else {
+          errorContent += "Please check the file and try again.";
+        }
+        
+        setMessages(prev => prev.map(msg => 
+          msg.id === processingMessage.id 
+            ? { ...msg, content: errorContent }
+            : msg
+        ));
       } finally {
         setIsLoading(false);
         setUploadedFile(null);
@@ -241,6 +262,17 @@ export default function AskPage() {
     setInput("");
     setIsLoading(true);
 
+    // Add thinking message
+    const thinkingMessageId = `thinking-${Date.now()}`;
+    thinkingMessageIdRef.current = thinkingMessageId;
+    const thinkingMessage: Message = {
+      id: thinkingMessageId,
+      type: "assistant",
+      content: "thinking...",
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, thinkingMessage]);
+
     try {
       // Check if this is a payment command
       const paymentMatch = input.match(/pay\s+(expense|invoice)\s+#?(\d+)/i);
@@ -265,7 +297,15 @@ export default function AskPage() {
             content: `Expense #${expenseId} has already been paid.`,
             timestamp: new Date(),
           };
-          setMessages(prev => [...prev, assistantMessage]);
+          setMessages(prev => {
+            const thinkingId = thinkingMessageIdRef.current;
+            // Replace thinking message with actual response, and filter out any remaining thinking messages
+            const updated = thinkingId 
+              ? prev.map(msg => msg.id === thinkingId ? assistantMessage : msg)
+              : [...prev, assistantMessage];
+            // Remove any remaining thinking messages (safety check)
+            return updated.filter(msg => msg.content !== "thinking...");
+          });
         } else {
           // Process payment
           const paymentRes = await fetch("/api/agent", {
@@ -284,15 +324,18 @@ export default function AskPage() {
           
           const result = await paymentRes.json();
           
-          const assistantMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            type: "assistant",
-            content: result.success 
-              ? `✅ Payment of $${expense.amount} sent successfully to ${expense.sales_email} for expense #${expenseId}`
-              : `❌ Payment failed: ${result.result || "Unknown error"}`,
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, assistantMessage]);
+                  const assistantMessage: Message = {
+                    id: (Date.now() + 1).toString(),
+                    type: "assistant",
+                    content: result.success 
+                      ? `✅ Payment of $${expense.amount} sent successfully to ${expense.sales_email} for expense #${expenseId}`
+                      : `❌ Payment failed: ${result.result || "Unknown error"}`,
+                    timestamp: new Date(),
+                  };
+                  setMessages(prev => {
+                    const thinkingId = thinkingMessageIdRef.current;
+                    return thinkingId ? prev.map(msg => msg.id === thinkingId ? assistantMessage : msg) : [...prev, assistantMessage];
+                  });
         }
       } else if (emailPaymentMatch) {
         // Handle direct email payment
@@ -314,15 +357,18 @@ export default function AskPage() {
         
         const result = await paymentRes.json();
         
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: "assistant",
-          content: result.success 
-            ? `✅ Payment of $${amount} sent successfully to ${email}`
-            : `❌ Payment failed: ${result.result || "Unknown error"}`,
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, assistantMessage]);
+                const assistantMessage: Message = {
+                  id: (Date.now() + 1).toString(),
+                  type: "assistant",
+                  content: result.success 
+                    ? `✅ Payment of $${amount} sent successfully to ${email}`
+                    : `❌ Payment failed: ${result.result || "Unknown error"}`,
+                  timestamp: new Date(),
+                };
+                setMessages(prev => {
+                  const thinkingId = thinkingMessageIdRef.current;
+                  return thinkingId ? prev.map(msg => msg.id === thinkingId ? assistantMessage : msg) : [...prev, assistantMessage];
+                });
       } else {
         // Check if user is pasting invoice text (contains typical invoice keywords)
         const isInvoiceText = input.length > 50 && (
@@ -384,7 +430,15 @@ export default function AskPage() {
             timestamp: new Date(),
           };
           
-          setMessages(prev => [...prev, assistantMessage]);
+          setMessages(prev => {
+            const thinkingId = thinkingMessageIdRef.current;
+            // Replace thinking message with actual response, and filter out any remaining thinking messages
+            const updated = thinkingId 
+              ? prev.map(msg => msg.id === thinkingId ? assistantMessage : msg)
+              : [...prev, assistantMessage];
+            // Remove any remaining thinking messages (safety check)
+            return updated.filter(msg => msg.content !== "thinking...");
+          });
         } else {
           // Regular query processing - include recent chat history for context
           const recentMessages = messages.slice(-10).map(msg => ({
@@ -413,7 +467,15 @@ export default function AskPage() {
             timestamp: new Date(),
           };
 
-          setMessages(prev => [...prev, assistantMessage]);
+          setMessages(prev => {
+            const thinkingId = thinkingMessageIdRef.current;
+            // Replace thinking message with actual response, and filter out any remaining thinking messages
+            const updated = thinkingId 
+              ? prev.map(msg => msg.id === thinkingId ? assistantMessage : msg)
+              : [...prev, assistantMessage];
+            // Remove any remaining thinking messages (safety check)
+            return updated.filter(msg => msg.content !== "thinking...");
+          });
         }
       }
     } catch (error) {
@@ -424,9 +486,18 @@ export default function AskPage() {
         content: "Sorry, I encountered an error. Please try again.",
         timestamp: new Date(),
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => {
+        const thinkingId = thinkingMessageIdRef.current;
+        // Replace thinking message with error, and filter out any remaining thinking messages
+        const updated = thinkingId 
+          ? prev.map(msg => msg.id === thinkingId ? errorMessage : msg)
+          : [...prev, errorMessage];
+        // Remove any remaining thinking messages (safety check)
+        return updated.filter(msg => msg.content !== "thinking...");
+      });
     } finally {
       setIsLoading(false);
+      thinkingMessageIdRef.current = null;
     }
   };
 
@@ -493,7 +564,13 @@ export default function AskPage() {
                     : "bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100"
                 )}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                {message.content === "thinking..." ? (
+                  <TextShimmer className="text-sm font-medium">
+                    thinking...
+                  </TextShimmer>
+                ) : (
+                  <p className="whitespace-pre-wrap">{message.content}</p>
+                )}
                 {message.attachment && (
                   <div className="mt-2">
                     {message.attachment.processing ? (
@@ -514,9 +591,11 @@ export default function AskPage() {
                     )}
                   </div>
                 )}
-                <p className="text-xs opacity-70 mt-1">
-                  {message.timestamp.toLocaleTimeString()}
-                </p>
+                {message.content !== "thinking..." && (
+                  <p className="text-xs opacity-70 mt-1">
+                    {message.timestamp.toLocaleTimeString()}
+                  </p>
+                )}
               </div>
               {message.type === "user" && (
                 <div className="w-8 h-8 rounded-full bg-neutral-300 dark:bg-neutral-600 flex items-center justify-center">
