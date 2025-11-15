@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+import Anthropic from '@anthropic-ai/sdk';
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,28 +30,54 @@ export async function POST(request: NextRequest) {
 
     // Read file from public/uploads directory
     const filepath = join(process.cwd(), 'public', 'uploads', filename);
-    
+
     let extractedText = '';
-    
+
     try {
       const fileBuffer = await readFile(filepath);
-      
-      // Check if it's a PDF (by extension for now)
-      if (filename.toLowerCase().endsWith('.pdf')) {
-        // Parse PDF - using pdf-parse-fork which has better Node.js compatibility
+
+      // Check if it's a PDF or image
+      if (filename.toLowerCase().endsWith('.pdf') ||
+          filename.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)) {
+
+        // Use Claude's Vision API to extract text from PDF or image
         try {
-          const pdfParse = require('pdf-parse-fork');
-          
-          // Try parsing with lenient options for malformed PDFs
-          const pdfData = await pdfParse(fileBuffer, {
-            max: 0, // Parse all pages
-            version: 'default'
+          const base64Data = fileBuffer.toString('base64');
+          const isPdf = filename.toLowerCase().endsWith('.pdf');
+
+          const mediaType = isPdf ? 'application/pdf' :
+                           filename.toLowerCase().endsWith('.png') ? 'image/png' :
+                           filename.toLowerCase().endsWith('.jpg') || filename.toLowerCase().endsWith('.jpeg') ? 'image/jpeg' :
+                           filename.toLowerCase().endsWith('.gif') ? 'image/gif' : 'image/webp';
+
+          const message = await anthropic.messages.create({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 4096,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: isPdf ? 'document' : 'image',
+                    source: {
+                      type: 'base64',
+                      media_type: mediaType,
+                      data: base64Data,
+                    },
+                  },
+                  {
+                    type: 'text',
+                    text: 'Please extract all text content from this invoice document. Include company names, amounts, dates, email addresses, and any other relevant invoice information. Return the extracted text in a clear, structured format.'
+                  }
+                ],
+              },
+            ],
           });
-          
-          extractedText = pdfData.text;
-          
+
+          extractedText = message.content[0].type === 'text' ? message.content[0].text : '';
+
           if (!extractedText || extractedText.trim().length === 0) {
-            extractedText = `PDF_PARSE_EMPTY: No text content found in the PDF. This might be a scanned image or an empty document.
+            extractedText = `Unable to extract text from this document. It may be empty or unreadable.
 
 For testing purposes, you can manually paste invoice text like:
 "Invoice from TechSupplies Inc.
@@ -54,31 +85,14 @@ Amount Due: $891.00
 Email: billing@techsupplies.com
 Due Date: 2024-12-15"`;
           }
-        } catch (pdfError: any) {
-          console.error('PDF parsing error:', pdfError);
-          
-          // Provide helpful error message based on error type
-          const errorMsg = pdfError?.message || 'Unknown error';
-          
-          if (errorMsg.includes('XRef') || errorMsg.includes('bad') || errorMsg.includes('FormatError')) {
-            extractedText = `PDF_PARSE_ERROR: This PDF has formatting issues and cannot be parsed automatically.
+        } catch (visionError: any) {
+          console.error('Vision API error:', visionError);
+          extractedText = `Error processing document with Vision API: ${visionError?.message || 'Unknown error'}
 
-For now, please manually paste the invoice text like:
-"Invoice from TechSupplies Inc.
-Amount Due: $891.00
-Email: billing@techsupplies.com
-Due Date: 2024-12-15"
-
-Then I can extract the information for you!`;
-          } else {
-            extractedText = `PDF_PARSE_ERROR: Could not parse PDF. ${errorMsg}
-
-Please manually paste the invoice text and I'll extract the information.`;
-          }
+Please try uploading a different document or manually paste the invoice text.`;
         }
       } else {
-        // For images, we'll need OCR (for now, return a message)
-        extractedText = `[Image file: ${filename}. Note: OCR is not yet implemented. Please upload a PDF for text extraction.]`;
+        extractedText = `[Unsupported file type: ${filename}. Please upload a PDF or image file (JPG, PNG, GIF, WebP).]`;
       }
     } catch (error) {
       console.error('Error reading file:', error);

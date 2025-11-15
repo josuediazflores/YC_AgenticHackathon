@@ -1,62 +1,29 @@
 import 'dotenv/config';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { IterableResponse } from '@anthropic-ai/claude-agent-sdk';
+import Anthropic from '@anthropic-ai/sdk';
 
-// MCP Server configuration for Locus
-const mcpServers = {
-  'locus': {
-    type: 'http' as const,
-    url: 'https://mcp.paywithlocus.com/mcp',
-    headers: {
-      'Authorization': `Bearer ${process.env.LOCUS_API_KEY}`
-    }
-  }
-};
-
-// Claude SDK options
-const options = {
-  mcpServers,
-  allowedTools: [
-    'mcp__locus__*',      // Allow all Locus tools
-    'mcp__list_resources',
-    'mcp__read_resource'
-  ],
+const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
-  // Auto-approve Locus tool usage
-  canUseTool: async (toolName: string, input: Record<string, unknown>) => {
-    if (toolName.startsWith('mcp__locus__')) {
-      return {
-        behavior: 'allow' as const,
-        updatedInput: input
-      };
-    }
-    return {
-      behavior: 'deny' as const,
-      message: 'Only Locus tools are allowed'
-    };
-  }
-};
+});
 
 export async function sendClaudeMessage(prompt: string): Promise<string> {
-  let finalResult = '';
-  let mcpConnected = false;
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+    });
 
-  for await (const message of query({ prompt, options })) {
-    if (message.type === 'system' && message.subtype === 'init') {
-      // Check MCP connection status
-      const mcpServersInfo = (message as any).mcp_servers;
-      const mcpStatus = mcpServersInfo?.find((s: any) => s.name === 'locus');
-      mcpConnected = mcpStatus?.status === 'connected';
-    } else if (message.type === 'result' && message.subtype === 'success') {
-      finalResult = (message as any).result;
-    }
+    const textContent = message.content.find(block => block.type === 'text');
+    return textContent && textContent.type === 'text' ? textContent.text : '';
+  } catch (error) {
+    console.error('Error calling Claude API:', error);
+    throw error;
   }
-
-  if (!mcpConnected) {
-    console.warn('MCP connection to Locus failed');
-  }
-
-  return finalResult;
 }
 
 // Helper function to extract invoice data
@@ -162,12 +129,15 @@ export async function processExpenseQuery(query: string, context: {
 
 // Helper function to get payment context from Locus
 export async function getLocusPaymentContext() {
-  const prompt = "Use the mcp__locus__get_payment_context tool to get the current payment context including budget and whitelisted contacts.";
-  return sendClaudeMessage(prompt);
+  // Note: This requires MCP integration with Locus via Claude Agent SDK
+  // For now, return a placeholder response
+  return "Locus payment context: MCP integration required for real-time data. Please use the direct Locus API or configure MCP servers.";
 }
 
 // Helper function to send payment via Locus
 export async function sendLocusPayment(email: string, amount: number, memo: string) {
-  const prompt = `Use the mcp__locus__send_to_email tool to send ${amount} USDC to ${email} with memo: "${memo}"`;
-  return sendClaudeMessage(prompt);
+  // Note: This requires MCP integration with Locus via Claude Agent SDK
+  // For now, return a simulated response
+  console.log(`[Simulated] Would send ${amount} USDC to ${email} with memo: "${memo}"`);
+  return `Payment simulation: Would send ${amount} USDC to ${email}. For actual payments, please integrate with Locus MCP server or use direct API calls.`;
 }
