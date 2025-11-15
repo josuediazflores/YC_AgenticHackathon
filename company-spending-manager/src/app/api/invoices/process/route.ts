@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir, readFile } from 'fs/promises';
+import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { categoryOperations, expenseOperations } from '@/lib/db';
+
+// Type for category from database
+interface Category {
+  id: number;
+  name: string;
+  description?: string;
+  budget_limit?: number;
+  created_at?: string;
+}
 
 // Configure route for file uploads
 export const runtime = 'nodejs';
@@ -69,8 +78,8 @@ export async function POST(request: NextRequest) {
     });
     
     // Get existing categories for AI context
-    const categories = categoryOperations.getAll();
-    const categoryNames = categories.map(c => c.name);
+    const categories = categoryOperations.getAll() as Category[];
+    const categoryNames = categories.map((c: Category) => c.name);
     
     // Save file temporarily
     const uploadsDir = join(process.cwd(), 'public', 'uploads');
@@ -125,9 +134,11 @@ export async function POST(request: NextRequest) {
     let extractedText = '';
     if (isPDF) {
       try {
+        // Dynamic import for pdf-parse-fork (CommonJS module)
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const pdfParse = require('pdf-parse-fork');
         const pdfData = await pdfParse(buffer, { max: 0 });
-        extractedText = pdfData.text || '';
+        extractedText = (pdfData as { text?: string }).text || '';
         console.log(`Extracted ${extractedText.length} characters from PDF`);
         if (extractedText.length < 50) {
           console.warn('PDF text extraction returned very little text - document might be image-based');
@@ -150,6 +161,7 @@ export async function POST(request: NextRequest) {
     
     try {
       // Prepare content for Claude
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const content: any[] = [];
       
       // For images, use Vision API
@@ -277,10 +289,13 @@ Example response: {"company_name": "Acme Corp", "amount": 1500.00, "sales_email"
       console.log('Claude API response received');
       
       // Extract JSON from response
-      const textContent = response.content.find((block: any) => block.type === 'text')?.text || '';
+      // Find text block in response content
+      const textBlock = response.content.find((block) => block.type === 'text');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const textContent = (textBlock as any)?.text || '';
       
       // Try to find JSON in the response (handle cases where Claude adds explanation text)
-      let jsonMatch = textContent.match(/\{[\s\S]*\}/);
+      const jsonMatch = textContent.match(/\{[\s\S]*\}/);
       
       if (jsonMatch) {
         try {
@@ -370,7 +385,7 @@ Example response: {"company_name": "Acme Corp", "amount": 1500.00, "sales_email"
     // Handle category - find existing or create new
     let categoryId: number | undefined;
     if (invoiceData.category) {
-      const existingCategory = categories.find(c => 
+      const existingCategory = categories.find((c: Category) => 
         c.name.toLowerCase() === invoiceData.category!.toLowerCase()
       );
       
