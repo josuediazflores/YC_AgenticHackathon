@@ -124,53 +124,6 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      case 'send_email': {
-        const { to, subject, body: emailBody, html, from } = data;
-        
-        if (!to || !subject || (!emailBody && !html)) {
-          return NextResponse.json(
-            { error: 'To, subject, and body (or html) are required' },
-            { status: 400 }
-          );
-        }
-
-        // Import Resend directly to avoid fetch issues
-        const { Resend } = await import('resend');
-        const resend = new Resend(process.env.RESEND_API_KEY);
-
-        try {
-          const fromEmail = from || process.env.RESEND_FROM_EMAIL || 'YC@testing.james.baby';
-          
-          const { data: emailData, error: emailError } = await resend.emails.send({
-            from: fromEmail,
-            to: Array.isArray(to) ? to : [to],
-            subject,
-            text: emailBody || undefined,
-            html: html || undefined,
-          });
-
-          if (emailError) {
-            console.error('Resend API error:', emailError);
-            return NextResponse.json(
-              { error: 'Failed to send email', details: emailError.message || 'Unknown error' },
-              { status: 500 }
-            );
-          }
-
-          return NextResponse.json({ 
-            success: true, 
-            result: `Email sent successfully to ${Array.isArray(to) ? to.join(', ') : to}. Message ID: ${emailData?.id || 'N/A'}`,
-            messageId: emailData?.id
-          });
-        } catch (error) {
-          console.error('Error sending email:', error);
-          return NextResponse.json(
-            { error: 'Failed to send email', details: error instanceof Error ? error.message : 'Unknown error' },
-            { status: 500 }
-          );
-        }
-      }
-
       case 'chat': {
         if (!data?.message) {
           return NextResponse.json(

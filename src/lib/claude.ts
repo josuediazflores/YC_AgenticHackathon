@@ -174,19 +174,6 @@ export async function processExpenseQuery(query: string, context: {
       Arguments: {amount: number, recipient_email: string, memo?: string}
     - get_payment_context - Get current payment budget and whitelisted contacts
     
-    Email Sending Capability:
-    - You CAN send emails on behalf of the user using the send_email action
-    - When the user asks to send an email (including "test email", "send email to [address]", etc.), format it professionally
-    - The user's email address is: YC@testing.james.baby
-    - Format emails with:
-      * Clear, professional subject line (use "Test Email" for test emails)
-      * Appropriate greeting (Dear/Hi/Hello based on formality)
-      * Well-structured body with clear purpose
-      * Professional closing with contact information
-    - For test emails, use a simple, friendly message
-    - Include relevant context from the conversation when appropriate
-    - If the user asks to send an email, DO NOT say you can't - the system can send emails
-    
     Instructions:
     - Use MCP tools to fetch or modify expense data
     - Reference conversation history for context (especially invoice details)

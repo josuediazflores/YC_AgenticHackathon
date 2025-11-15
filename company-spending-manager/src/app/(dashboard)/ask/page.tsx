@@ -89,14 +89,16 @@ export default function AskPage() {
         // Process invoice directly using the improved processing endpoint (handles upload + processing)
         setIsLoading(true);
         
-        // Add processing message
-        const processingMessage: Message = {
-          id: (Date.now() + 1).toString(),
+        // Add thinking message
+        const thinkingMessageId = `thinking-${Date.now()}`;
+        thinkingMessageIdRef.current = thinkingMessageId;
+        const thinkingMessage: Message = {
+          id: thinkingMessageId,
           type: "assistant",
-          content: "Processing your invoice with AI...",
+          content: "thinking...",
           timestamp: new Date(),
         };
-        setMessages(prev => [...prev, processingMessage]);
+        setMessages(prev => [...prev, thinkingMessage]);
         
         // Use the improved invoice processing endpoint that uses Claude Vision
         const processFormData = new FormData();
@@ -210,12 +212,21 @@ export default function AskPage() {
           }
         }
         
-        // Update processing message with final response
-        setMessages(prev => prev.map(msg => 
-          msg.id === processingMessage.id 
-            ? { ...msg, content: response }
-            : msg
-        ));
+        // Replace thinking message with final response
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: "assistant",
+          content: response,
+          timestamp: new Date(),
+        };
+        
+        setMessages(prev => {
+          const thinkingId = thinkingMessageIdRef.current;
+          const updated = thinkingId 
+            ? prev.map(msg => msg.id === thinkingId ? assistantMessage : msg)
+            : [...prev, assistantMessage];
+          return updated.filter(msg => msg.content !== "thinking...");
+        });
         
       } catch (error) {
         console.error("Error processing invoice:", error);
@@ -231,15 +242,25 @@ export default function AskPage() {
           errorContent += "Please check the file and try again.";
         }
         
-        setMessages(prev => prev.map(msg => 
-          msg.id === processingMessage.id 
-            ? { ...msg, content: errorContent }
-            : msg
-        ));
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: "assistant",
+          content: errorContent,
+          timestamp: new Date(),
+        };
+        
+        setMessages(prev => {
+          const thinkingId = thinkingMessageIdRef.current;
+          const updated = thinkingId 
+            ? prev.map(msg => msg.id === thinkingId ? errorMessage : msg)
+            : [...prev, errorMessage];
+          return updated.filter(msg => msg.content !== "thinking...");
+        });
       } finally {
         setIsLoading(false);
         setUploadedFile(null);
         setProcessingFile(false);
+        thinkingMessageIdRef.current = null;
       }
     }
   };
@@ -446,43 +467,204 @@ export default function AskPage() {
             return updated.filter(msg => msg.content !== "thinking...");
           });
         } else {
-          // Regular query processing - include recent chat history for context
-          const recentMessages = messages.slice(-10).map(msg => ({
-            role: msg.type === "user" ? "user" : "assistant",
-            content: msg.content
-          }));
+          // Check if this is an email sending request (more flexible patterns)
+          const emailPatterns = [
+            // "send a test email to email@example.com"
+            /send\s+(?:a\s+)?(?:test\s+)?email\s+(?:to\s+)?([^\s@]+@[^\s@]+)(?:\s+(?:about|regarding|with|saying|that|:)?\s*(.+))?/i,
+            // "email email@example.com about something"
+            /email\s+([^\s@]+@[^\s@]+)(?:\s+(?:about|regarding|with|saying|that|:)?\s*(.+))?/i,
+            // "send email@example.com an email"
+            /send\s+([^\s@]+@[^\s@]+)\s+(?:an\s+)?(?:test\s+)?email(?:\s+(?:about|regarding|with|saying|that|:)?\s*(.+))?/i,
+            // "write an email to email@example.com"
+            /write\s+(?:an\s+)?(?:test\s+)?email\s+(?:to\s+)?([^\s@]+@[^\s@]+)(?:\s+(?:about|regarding|with|saying|that|:)?\s*(.+))?/i,
+            // "send email to email@example.com"
+            /send\s+email\s+to\s+([^\s@]+@[^\s@]+)(?:\s+(?:about|regarding|with|saying|that|:)?\s*(.+))?/i,
+            // "just send [email]"
+            /just\s+send\s+(?:a\s+)?(?:test\s+)?email\s+(?:to\s+)?([^\s@]+@[^\s@]+)/i,
+          ];
           
-          const response = await fetch("/api/agent", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "process_query",
-              data: { 
-                query: input,
-                chatHistory: recentMessages 
-              },
-            }),
-          });
+          let emailMatch = null;
+          for (const pattern of emailPatterns) {
+            const match = input.match(pattern);
+            if (match) {
+              emailMatch = match;
+              break;
+            }
+          }
+          
+          // If no direct email match but user mentions "send email" or "test email", check recent messages for email addresses
+          if (!emailMatch && ((input.toLowerCase().includes('send') && input.toLowerCase().includes('email')) || input.toLowerCase().includes('test email'))) {
+            // Look for email addresses in recent messages
+            const recentMessages = messages.slice(-10);
+            const emailRegex = /([^\s@]+@[^\s@]+)/g;
+            let foundEmail = null;
+            
+            for (let i = recentMessages.length - 1; i >= 0; i--) {
+              const msg = recentMessages[i];
+              const emailMatches = msg.content.match(emailRegex);
+              if (emailMatches && emailMatches.length > 0) {
+                foundEmail = emailMatches[0];
+                break;
+              }
+            }
+            
+            if (foundEmail) {
+              emailMatch = [null, foundEmail, input.toLowerCase().includes('test') ? 'This is a test email to verify the email sending functionality.' : ''];
+            }
+          }
+          
+          if (emailMatch) {
+            const recipientEmail = emailMatch[1];
+            const emailContent = emailMatch[2] || (input.toLowerCase().includes('test') ? 'This is a test email to verify the email sending functionality.' : '');
+            
+            // Ask Claude to format the email professionally
+            const recentMessages = messages.slice(-10).map(msg => ({
+              role: msg.type === "user" ? "user" : "assistant",
+              content: msg.content
+            }));
+            
+            // Determine email content based on context
+            let emailPrompt = '';
+            if (emailContent && emailContent.trim()) {
+              emailPrompt = `The user wants to send an email to ${recipientEmail}. Content: "${emailContent}".`;
+            } else if (input.toLowerCase().includes('test')) {
+              emailPrompt = `The user wants to send a test email to ${recipientEmail} to verify email functionality.`;
+            } else {
+              // Check recent conversation for context
+              const lastUserMessage = recentMessages.filter(m => m.role === 'user').pop();
+              if (lastUserMessage && lastUserMessage.content.toLowerCase().includes('email')) {
+                emailPrompt = `The user wants to send an email to ${recipientEmail} based on the conversation context.`;
+              } else {
+                emailPrompt = `The user wants to send an email to ${recipientEmail}.`;
+              }
+            }
+            
+            const formatResponse = await fetch("/api/agent", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "process_query",
+                data: { 
+                  query: `${emailPrompt}
 
-          const data = await response.json();
+Please format this as a professional email with:
+1. A clear, professional subject line (use "Test Email" if it's a test)
+2. Appropriate greeting (Dear/Hi/Hello based on context)
+3. Well-structured body paragraph(s)
+4. Professional closing with contact information (YC@testing.james.baby)
 
-          const assistantMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            type: "assistant",
-            content: data.response || "I couldn't process that request. Please try again.",
-            timestamp: new Date(),
-            expense: data.expense || null,
-          };
+Return ONLY a JSON object in this exact format:
+{
+  "subject": "Subject line here",
+  "body": "Full email text here with line breaks",
+  "html": "<p>HTML formatted email here</p>"
+}`,
+                  chatHistory: recentMessages 
+                },
+              }),
+            });
+            
+            const formatData = await formatResponse.json();
+            
+            // Try to extract email details from Claude's response
+            let emailSubject = `Message from YC@testing.james.baby`;
+            let emailBody = emailContent;
+            let emailHtml = '';
+            
+            try {
+              // Try to parse JSON from response
+              const jsonMatch = formatData.response?.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                emailSubject = parsed.subject || emailSubject;
+                emailBody = parsed.body || emailContent;
+                emailHtml = parsed.html || `<p>${emailBody.replace(/\n/g, '<br>')}</p>`;
+              } else {
+                // If no JSON, try to extract subject and body from text
+                const subjectMatch = formatData.response?.match(/subject[:\s]+(.+?)(?:\n|$)/i);
+                if (subjectMatch) emailSubject = subjectMatch[1].trim();
+                emailBody = formatData.response || emailContent;
+                emailHtml = `<p>${emailBody.replace(/\n/g, '<br>')}</p>`;
+              }
+            } catch (e) {
+              // Use defaults if parsing fails
+              emailBody = formatData.response || emailContent;
+              emailHtml = `<p>${emailBody.replace(/\n/g, '<br>')}</p>`;
+            }
+            
+            // Send the email
+            const emailRes = await fetch("/api/agent", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "send_email",
+                data: {
+                  to: recipientEmail,
+                  subject: emailSubject,
+                  body: emailBody,
+                  html: emailHtml,
+                  from: 'YC@testing.james.baby'
+                }
+              }),
+            });
+            
+            const emailResult = await emailRes.json();
+            
+            const assistantMessage: Message = {
+              id: (Date.now() + 1).toString(),
+              type: "assistant",
+              content: emailResult.success 
+                ? `✅ Email sent successfully to ${recipientEmail}!\n\n**Subject:** ${emailSubject}\n\n**Message:** ${emailBody.substring(0, 200)}${emailBody.length > 200 ? '...' : ''}`
+                : `❌ Failed to send email: ${emailResult.error || "Unknown error"}`,
+              timestamp: new Date(),
+            };
+            
+            setMessages(prev => {
+              const thinkingId = thinkingMessageIdRef.current;
+              const updated = thinkingId 
+                ? prev.map(msg => msg.id === thinkingId ? assistantMessage : msg)
+                : [...prev, assistantMessage];
+              return updated.filter(msg => msg.content !== "thinking...");
+            });
+          } else {
+            // Regular query processing - include recent chat history for context
+            const recentMessages = messages.slice(-10).map(msg => ({
+              role: msg.type === "user" ? "user" : "assistant",
+              content: msg.content
+            }));
+            
+            const response = await fetch("/api/agent", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "process_query",
+                data: { 
+                  query: input,
+                  chatHistory: recentMessages 
+                },
+              }),
+            });
 
-          setMessages(prev => {
-            const thinkingId = thinkingMessageIdRef.current;
-            // Replace thinking message with actual response, and filter out any remaining thinking messages
-            const updated = thinkingId 
-              ? prev.map(msg => msg.id === thinkingId ? assistantMessage : msg)
-              : [...prev, assistantMessage];
-            // Remove any remaining thinking messages (safety check)
-            return updated.filter(msg => msg.content !== "thinking...");
-          });
+            const data = await response.json();
+
+            const assistantMessage: Message = {
+              id: (Date.now() + 1).toString(),
+              type: "assistant",
+              content: data.response || "I couldn't process that request. Please try again.",
+              timestamp: new Date(),
+              expense: data.expense || null,
+            };
+
+            setMessages(prev => {
+              const thinkingId = thinkingMessageIdRef.current;
+              // Replace thinking message with actual response, and filter out any remaining thinking messages
+              const updated = thinkingId 
+                ? prev.map(msg => msg.id === thinkingId ? assistantMessage : msg)
+                : [...prev, assistantMessage];
+              // Remove any remaining thinking messages (safety check)
+              return updated.filter(msg => msg.content !== "thinking...");
+            });
+          }
         }
       }
     } catch (error) {

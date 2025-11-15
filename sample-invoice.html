@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sample Invoice</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: white;
+        }
+        .header {
+            text-align: right;
+            margin-bottom: 40px;
+        }
+        .company {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .invoice-title {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .info-section {
+            margin-bottom: 30px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+        }
+        .total {
+            text-align: right;
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="company">TechSupplies Inc.</div>
+        <div>123 Tech Street, San Francisco, CA 94102</div>
+        <div>Email: billing@techsupplies.com</div>
+        <div>Phone: (555) 123-4567</div>
+    </div>
+
+    <div class="invoice-title">INVOICE</div>
+
+    <div class="info-section">
+        <strong>Invoice Number:</strong> INV-2024-001<br>
+        <strong>Invoice Date:</strong> November 15, 2024<br>
+        <strong>Due Date:</strong> December 15, 2024<br>
+    </div>
+
+    <div class="info-section">
+        <strong>Bill To:</strong><br>
+        Your Company Name<br>
+        456 Business Ave<br>
+        New York, NY 10001
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th>Quantity</th>
+                <th>Unit Price</th>
+                <th>Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Cloud Software License - Premium Plan</td>
+                <td>5</td>
+                <td>$150.00</td>
+                <td>$750.00</td>
+            </tr>
+            <tr>
+                <td>Technical Support Services</td>
+                <td>2</td>
+                <td>$50.00</td>
+                <td>$100.00</td>
+            </tr>
+            <tr>
+                <td>Data Storage (1TB)</td>
+                <td>1</td>
+                <td>$41.00</td>
+                <td>$41.00</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="total">
+        <div>Subtotal: $891.00</div>
+        <div>Tax (0%): $0.00</div>
+        <div style="border-top: 2px solid #333; padding-top: 10px; margin-top: 10px;">
+            Total Due: $891.00
+        </div>
+    </div>
+
+    <div class="footer">
+        <strong>Payment Information:</strong><br>
+        Please make payment to: billing@techsupplies.com<br>
+        Payment Methods: Bank Transfer, Credit Card, USDC<br>
+        <br>
+        <strong>Terms & Conditions:</strong><br>
+        Payment is due within 30 days of invoice date. Late payments may incur a 1.5% monthly interest charge.
+    </div>
+</body>
+</html>
