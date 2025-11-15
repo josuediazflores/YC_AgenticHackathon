@@ -188,7 +188,7 @@ Example response: {"company_name": "Acme Corp", "amount": 1500.00, "sales_email"
       // Call Claude API
       console.log('Sending request to Claude with content types:', content.map(c => c.type));
       const response = await anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 4096,
         messages: [{
           role: 'user',

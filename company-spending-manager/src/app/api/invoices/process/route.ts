@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
                   (file.type === 'application/octet-stream' && fileExtension === '.pdf');
     
     let extractedText = '';
+    let pdfParsingFailed = false;
     if (isPDF) {
       try {
         // Dynamic import for pdf-parse-fork (CommonJS module)
@@ -141,10 +142,16 @@ export async function POST(request: NextRequest) {
         extractedText = (pdfData as { text?: string }).text || '';
         console.log(`Extracted ${extractedText.length} characters from PDF`);
         if (extractedText.length < 50) {
-          console.warn('PDF text extraction returned very little text - document might be image-based');
+          console.warn('PDF text extraction returned very little text - will use vision instead');
+          pdfParsingFailed = true;
         }
-      } catch (pdfError) {
+      } catch (pdfError: any) {
         console.error('PDF parsing error:', pdfError);
+        const errorMsg = pdfError?.message || '';
+        if (errorMsg.includes('XRef') || errorMsg.includes('bad') || errorMsg.includes('FormatError')) {
+          console.log('PDF has formatting issues - falling back to vision processing');
+          pdfParsingFailed = true;
+        }
         extractedText = '';
       }
     }
@@ -168,10 +175,12 @@ export async function POST(request: NextRequest) {
       const isImage = file.type.startsWith('image/') || 
                      ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(fileExtension);
       
-      if (isImage) {
-        // Reuse the buffer we already have
+      // Use vision for images OR PDFs that failed to parse
+      const useVision = isImage || (isPDF && pdfParsingFailed);
+      
+      if (useVision && !isPDF) {
+        // For regular images
         const base64Data = buffer.toString('base64');
-        // Determine media type from file extension if MIME type is missing
         let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
         if (file.type) {
           mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
@@ -191,18 +200,15 @@ export async function POST(request: NextRequest) {
           },
         });
       } else if (isPDF) {
-        // For PDFs, we cannot send them directly to Claude Vision API
-        // Claude Vision only accepts image types (jpeg, png, gif, webp)
-        // Instead, we'll use the extracted text from the PDF
-        console.log('PDF detected - using text extraction instead of Vision API');
-        
-        if (!extractedText || extractedText.length < 50) {
-          // If text extraction failed or returned very little text, we can't process it
-          throw new Error('Could not extract sufficient text from PDF. The PDF might be image-based or corrupted. Please try uploading a PDF with selectable text or convert it to an image first.');
+        // For PDFs with text extraction
+        if (!pdfParsingFailed && extractedText && extractedText.length >= 50) {
+          console.log(`Using ${extractedText.length} characters of extracted text for analysis`);
+          // We'll add the extracted text to the prompt below
+        } else {
+          // PDF parsing failed - tell user to paste text manually or try a different PDF
+          console.log('PDF text extraction failed - cannot process');
+          throw new Error('This PDF has formatting issues and cannot be processed automatically. Please try:\n\n1. Copy the text from the PDF and paste it directly in the chat\n2. Take a screenshot and upload as an image\n3. Try a different PDF file');
         }
-        
-        console.log(`Using ${extractedText.length} characters of extracted text for analysis`);
-        // We'll add the extracted text to the prompt below
       }
       
       // For PDFs, we also include extracted text if available for better context
@@ -278,7 +284,7 @@ Example response: {"company_name": "Acme Corp", "amount": 1500.00, "sales_email"
       console.log('Content length:', JSON.stringify(content).length, 'bytes');
       
       const response = await anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 4096,
         messages: [{
           role: 'user',
@@ -429,8 +435,11 @@ Example response: {"company_name": "Acme Corp", "amount": 1500.00, "sales_email"
     
     return NextResponse.json(
       { 
-        error: 'Failed to process invoice', 
-        details: errorMessage,
+        success: false,
+        error: errorMessage,
+        suggestion: errorMessage.includes('formatting issues') 
+          ? 'Try copying the text from the PDF and pasting it in the chat instead.'
+          : 'Please check the file and try again.',
         stack: process.env.NODE_ENV === 'development' ? errorStack : undefined
       },
       { status: 500 }

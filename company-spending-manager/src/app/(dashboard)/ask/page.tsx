@@ -155,31 +155,22 @@ export default function AskPage() {
         
         // Create assistant response with structured data
         let response = "";
+        let expenseData = null;
         
         if (processRes.ok && processData.success && processData.extracted) {
           const extracted = processData.extracted;
           
-          response = "✅ I've successfully extracted and processed your invoice!\n\n";
-          
-          if (extracted.company_name) {
-            response += `**Company:** ${extracted.company_name}\n`;
-          }
-          if (extracted.amount) {
-            response += `**Amount:** $${extracted.amount.toFixed(2)}\n`;
-          }
-          if (extracted.sales_email) {
-            response += `**Email:** ${extracted.sales_email}\n`;
-          }
-          if (extracted.due_date) {
-            response += `**Due Date:** ${extracted.due_date}\n`;
-          }
-          if (extracted.category) {
-            response += `**Category:** ${extracted.category}`;
-            if (processData.categoryCreated) response += " (new category created)";
-            response += "\n";
+          // Create expense object for the card display
+          if (extracted.company_name && extracted.amount) {
+            expenseData = {
+              company: extracted.company_name,
+              amount: extracted.amount.toFixed(2),
+              email: extracted.sales_email || "N/A",
+              status: "created"
+            };
           }
           
-          response += `\n✅ Expense has been created and saved to your expenses list!`;
+          response = "✅ I've successfully extracted and created the expense!";
           
           if (processData.categoryCreated) {
             response += `\n\n📁 A new category "${extracted.category}" was automatically created.`;
@@ -217,6 +208,7 @@ export default function AskPage() {
           id: (Date.now() + 1).toString(),
           type: "assistant",
           content: response,
+          expense: expenseData,
           timestamp: new Date(),
         };
         
@@ -228,19 +220,15 @@ export default function AskPage() {
           return updated.filter(msg => msg.content !== "thinking...");
         });
         
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error processing invoice:", error);
         
-        // Update processing message with detailed error
-        let errorContent = "❌ Failed to process invoice. ";
-        
-        if (error instanceof Error) {
-          errorContent += error.message;
-        } else if (typeof error === 'string') {
-          errorContent += error;
-        } else {
-          errorContent += "Please check the file and try again.";
-        }
+        // Try to get error details from response
+        let errorContent = "❌ This PDF has formatting issues and can't be processed automatically.\n\n";
+        errorContent += "💡 **Try this instead:**\n";
+        errorContent += "1. Open the PDF and copy the text\n";
+        errorContent += "2. Paste it here in the chat\n";
+        errorContent += "3. I'll extract the invoice details from your pasted text!";
         
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -773,9 +761,15 @@ Return ONLY a JSON object in this exact format:
                         "px-2 py-1 rounded-full text-xs font-medium",
                         message.expense.status === "paid" 
                           ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                          : message.expense.status === "created"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                           : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
                       )}>
-                        {message.expense.status === "paid" ? "✓ Paid" : "⏳ Pending"}
+                        {message.expense.status === "paid" 
+                          ? "✓ Paid" 
+                          : message.expense.status === "created"
+                          ? "📋 Created"
+                          : "⏳ Pending"}
                       </span>
                     </div>
                     <div className="space-y-2 text-sm">
