@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Receipt, DollarSign, Calendar, Building, Mail, FileText, Send, Loader2, Filter } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Receipt, Building, Mail, FileText, Send, Loader2, Filter, Upload, CheckCircle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDropzone } from "react-dropzone";
 
 interface Expense {
   id: number;
@@ -32,10 +33,14 @@ export default function ExpensesPage() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [filterCategory, setFilterCategory] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchExpenses();
     fetchCategories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterCategory, filterStatus]);
 
   const fetchExpenses = async () => {
@@ -69,6 +74,81 @@ export default function ExpensesPage() {
     const category = categories.find(c => c.id === categoryId);
     return category?.name || "Unknown";
   };
+
+  const handleFileUpload = async (file: File) => {
+    setIsUploading(true);
+    setUploadStatus(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch('/api/invoices/process', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        setUploadStatus({
+          type: 'success',
+          message: `Expense created successfully! ${result.categoryCreated ? `New category "${result.extracted.category}" was created.` : ''}`
+        });
+        // Refresh expenses list
+        await fetchExpenses();
+        await fetchCategories();
+        
+        // Clear status after 5 seconds
+        setTimeout(() => setUploadStatus(null), 5000);
+      } else {
+        let errorMessage = result.error || 'Failed to process invoice. Please try again.';
+        if (result.suggestion) {
+          errorMessage += ` ${result.suggestion}`;
+        }
+        if (result.details) {
+          const missing = [];
+          if (!result.details.hasCompanyName) missing.push('company name');
+          if (!result.details.hasAmount) missing.push('amount');
+          if (missing.length > 0) {
+            errorMessage += ` Missing: ${missing.join(', ')}.`;
+          }
+        }
+        setUploadStatus({
+          type: 'error',
+          message: errorMessage
+        });
+      }
+    } catch (error) {
+      console.error('Error uploading invoice:', error);
+      setUploadStatus({
+        type: 'error',
+        message: 'An error occurred while processing the invoice. Please try again.'
+      });
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const onDrop = (acceptedFiles: File[]) => {
+    if (acceptedFiles.length > 0) {
+      handleFileUpload(acceptedFiles[0]);
+    }
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'image/*': ['.jpeg', '.jpg', '.png', '.gif', '.webp']
+    },
+    maxFiles: 1,
+    noClick: true,
+  });
 
   const handlePayment = async () => {
     if (!selectedExpense) return;
@@ -136,15 +216,92 @@ export default function ExpensesPage() {
   }
 
   return (
-    <div className="h-full overflow-auto">
+    <div {...getRootProps()} className="h-full overflow-auto relative">
+      {/* Drag and Drop Overlay */}
+      {isDragActive && (
+        <div className="fixed inset-0 bg-blue-500/20 backdrop-blur-sm z-50 flex items-center justify-center border-4 border-dashed border-blue-500">
+          <div className="text-center bg-white dark:bg-neutral-800 p-8 rounded-lg shadow-xl">
+            <Upload className="h-16 w-16 mx-auto text-blue-500 mb-4" />
+            <p className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
+              Drop your invoice here
+            </p>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-2">
+              Supports PDF and image files
+            </p>
+          </div>
+        </div>
+      )}
+      
+      <input {...getInputProps()} />
       {/* Header */}
       <div className="border-b border-neutral-200 dark:border-neutral-700 pb-4 mb-6">
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          Expenses
-        </h1>
-        <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
-          Track and manage all your company expenses
-        </p>
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+              Expenses
+            </h1>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
+              Track and manage all your company expenses
+            </p>
+          </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors",
+              "bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-300 dark:disabled:bg-neutral-700",
+              "text-white disabled:text-neutral-500",
+              "disabled:cursor-not-allowed"
+            )}
+          >
+            {isUploading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4" />
+                Upload Invoice
+              </>
+            )}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.jpeg,.jpg,.png,.gif,.webp,application/pdf,image/*"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                handleFileUpload(e.target.files[0]);
+              }
+            }}
+            className="hidden"
+          />
+        </div>
+        
+        {/* Upload Status */}
+        {uploadStatus && (
+          <div className={cn(
+            "mt-4 p-3 rounded-lg flex items-center gap-2",
+            uploadStatus.type === 'success' 
+              ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
+              : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+          )}>
+            {uploadStatus.type === 'success' ? (
+              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+            ) : (
+              <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+            )}
+            <p className={cn(
+              "text-sm",
+              uploadStatus.type === 'success'
+                ? "text-green-700 dark:text-green-300"
+                : "text-red-700 dark:text-red-300"
+            )}>
+              {uploadStatus.message}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
