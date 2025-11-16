@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Receipt, Building, Mail, FileText, Send, Loader2, Filter } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Receipt, Building, Mail, FileText, Send, Loader2, Filter, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getAvailableYears, getQuarterOptions, filterExpensesByQuarter, getCurrentQuarterInfo, type Quarter } from "@/lib/quarters";
 
 interface Expense {
   id: number;
@@ -10,6 +11,7 @@ interface Expense {
   company_name?: string;
   amount: number;
   sales_email?: string;
+  invoice_date?: string;
   due_date?: string;
   status: "pending" | "paid" | "cancelled";
   invoice_url?: string;
@@ -32,6 +34,8 @@ export default function ExpensesPage() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [filterCategory, setFilterCategory] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
+  const [filterYear, setFilterYear] = useState<number | null>(null);
+  const [filterQuarter, setFilterQuarter] = useState<Quarter | null>(null);
 
   useEffect(() => {
     fetchExpenses();
@@ -70,6 +74,85 @@ export default function ExpensesPage() {
     const category = categories.find(c => c.id === categoryId);
     return category?.name || "Unknown";
   };
+
+  const exportToCSV = () => {
+    // Use filtered expenses
+    const expensesToExport = filteredExpenses;
+
+    if (expensesToExport.length === 0) {
+      alert("No expenses to export");
+      return;
+    }
+
+    // Define CSV headers
+    const headers = [
+      "ID",
+      "Company Name",
+      "Category",
+      "Amount",
+      "Sales Email",
+      "Invoice Date",
+      "Due Date",
+      "Status",
+      "Invoice URL",
+      "Created At"
+    ];
+
+    // Convert expenses to CSV rows
+    const rows = expensesToExport.map(expense => [
+      expense.id,
+      expense.company_name || "",
+      getCategoryName(expense.category_id),
+      expense.amount.toFixed(2),
+      expense.sales_email || "",
+      expense.invoice_date || "",
+      expense.due_date || "",
+      expense.status,
+      expense.invoice_url || "",
+      expense.created_at
+    ]);
+
+    // Combine headers and rows
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row =>
+        row.map(cell =>
+          // Escape cells containing commas, quotes, or newlines
+          typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))
+            ? `"${cell.replace(/"/g, '""')}"`
+            : cell
+        ).join(",")
+      )
+    ].join("\n");
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+
+    // Generate filename with current date and filter info
+    const date = new Date().toISOString().split('T')[0];
+    let filename = `expenses_${date}`;
+
+    if (filterYear || filterQuarter) {
+      filename += '_filtered';
+      if (filterYear) filename += `_${filterYear}`;
+      if (filterQuarter) filename += `_Q${filterQuarter}`;
+    }
+    filename += '.csv';
+
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Filter expenses by quarter/year (client-side filtering)
+  const filteredExpenses = useMemo(() => {
+    return filterExpensesByQuarter(expenses, filterQuarter, filterYear);
+  }, [expenses, filterQuarter, filterYear]);
 
   const handlePayment = async () => {
     if (!selectedExpense) return;
@@ -151,7 +234,7 @@ export default function ExpensesPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-4 mb-6">
+      <div className="flex flex-wrap gap-4 mb-6 items-center">
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-neutral-500" />
           <select
@@ -177,14 +260,70 @@ export default function ExpensesPage() {
           <option value="paid">Paid</option>
           <option value="cancelled">Cancelled</option>
         </select>
+
+        {/* Year Filter */}
+        <select
+          value={filterYear || ""}
+          onChange={(e) => setFilterYear(e.target.value ? parseInt(e.target.value) : null)}
+          className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">All Years</option>
+          {getAvailableYears().map((year) => (
+            <option key={year} value={year}>
+              {year}
+            </option>
+          ))}
+        </select>
+
+        {/* Quarter Filter */}
+        <select
+          value={filterQuarter || ""}
+          onChange={(e) => setFilterQuarter(e.target.value ? parseInt(e.target.value) as Quarter : null)}
+          className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">All Quarters</option>
+          {getQuarterOptions().map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        {/* Clear Filters Button (show when filters are active) */}
+        {(filterCategory || filterStatus || filterYear || filterQuarter) && (
+          <button
+            onClick={() => {
+              setFilterCategory("");
+              setFilterStatus("");
+              setFilterYear(null);
+              setFilterQuarter(null);
+            }}
+            className="px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+          >
+            Clear Filters
+          </button>
+        )}
+
+        {/* Export CSV Button */}
+        <button
+          onClick={exportToCSV}
+          disabled={filteredExpenses.length === 0}
+          className="ml-auto px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          title={filteredExpenses.length === 0 ? "No expenses to export" : `Export ${filteredExpenses.length} expense${filteredExpenses.length === 1 ? '' : 's'} to CSV`}
+        >
+          <Download className="h-4 w-4" />
+          Export CSV ({filteredExpenses.length})
+        </button>
       </div>
 
       {/* Expenses Table */}
-      {expenses.length === 0 ? (
+      {filteredExpenses.length === 0 ? (
         <div className="text-center py-12">
           <Receipt className="h-12 w-12 mx-auto text-neutral-400 mb-4" />
           <p className="text-neutral-600 dark:text-neutral-400">
-            No expenses found. Upload invoices in the Ask tab to create expenses.
+            {expenses.length === 0
+              ? "No expenses found. Upload invoices in the Ask tab to create expenses."
+              : "No expenses match the selected filters."}
           </p>
         </div>
       ) : (
@@ -214,7 +353,7 @@ export default function ExpensesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
-                {expenses.map((expense) => (
+                {filteredExpenses.map((expense) => (
                   <tr key={expense.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
