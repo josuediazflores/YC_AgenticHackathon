@@ -59,7 +59,7 @@ export default function DashboardLayout({
           <div className="flex items-center justify-between">
             <SidebarLink
               link={{
-                label: "Company Spending",
+                label: "flowcoin",
                 href: "#",
                 icon: (
                   <div className="h-7 w-7 flex-shrink-0 rounded-full bg-gradient-to-r from-blue-500 to-purple-500" />
@@ -91,7 +91,7 @@ export const Logo = () => {
         animate={{ opacity: 1 }}
         className="font-medium text-black dark:text-white whitespace-pre"
       >
-        Spending Manager
+        flowcoin
       </motion.span>
     </Link>
   );

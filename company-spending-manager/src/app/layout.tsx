@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Company Spending Manager",
-  description: "AI-powered expense management and payment system for companies",
+  title: "flowcoin",
+  description: "AI-powered spending management with seamless USDC payments",
 };
 
 export default function RootLayout({

@@ -1,6 +1,6 @@
-# Company Spending Manager
+# flowcoin
 
-An AI-powered expense management and payment system for companies, featuring a conversational chatbot interface, automated invoice processing, and seamless USDC payments through Locus.
+AI-powered spending management with seamless USDC payments. Upload invoices, auto-categorize expenses, and send payments instantly through an intelligent chatbot interface.
 
 ## Features
 

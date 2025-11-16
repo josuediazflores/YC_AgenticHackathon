@@ -1,5 +1,5 @@
 """
-Expense Management MCP Server
+flowcoin MCP Server
 Built with FastMCP - https://gofastmcp.com/
 
 This server provides MCP tools for managing expenses and categories,
@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from fastmcp import FastMCP
 
 # Initialize FastMCP server
-mcp = FastMCP("Expense Management", version="1.0.0")
+mcp = FastMCP("flowcoin", version="1.0.0")
 
 # Database path - looks for the database in the Next.js project
 DB_PATH = Path(__file__).parent.parent / "spending.db"
@@ -410,7 +410,7 @@ if __name__ == "__main__":
         print("   Make sure to run `npm run dev` in the Next.js project first.\n")
     
     # Run the MCP server with SSE (Server-Sent Events) transport
-    print("🚀 Starting Expense Management MCP Server...")
+    print("🚀 Starting flowcoin MCP Server...")
     print(f"📁 Database: {DB_PATH}")
     print(f"🔧 Tools available: 9")
     print(f"\n✨ Server ready!")

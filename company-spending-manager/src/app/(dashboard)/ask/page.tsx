@@ -5,6 +5,8 @@ import { Send, Upload, Loader2, Bot, User, Paperclip, X, FileText, Trash2 } from
 import { useDropzone } from "react-dropzone";
 import { cn } from "@/lib/utils";
 import { InvoiceProcessor } from "@/components/invoice-processor";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 
 interface Message {
@@ -687,34 +689,29 @@ Return ONLY a JSON object in this exact format:
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="border-b border-neutral-200 dark:border-neutral-700 pb-4 mb-4">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-              Ask Your Spending Assistant
-            </h1>
-            <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
-              Chat with AI about expenses, upload invoices, or manage payments
-            </p>
-          </div>
-          {messages.length > 0 && (
-            <button
-              onClick={clearChat}
-              className="p-2 text-neutral-400 hover:text-red-500 transition-colors"
-              title="Clear chat history"
-            >
-              <Trash2 className="h-5 w-5" />
-            </button>
-          )}
+      {/* Header - minimal with just clear button */}
+      {messages.length > 0 && (
+        <div className="flex justify-end pb-4 mb-4">
+          <button
+            onClick={clearChat}
+            className="p-2 text-neutral-400 hover:text-red-500 transition-colors"
+            title="Clear chat history"
+          >
+            <Trash2 className="h-5 w-5" />
+          </button>
         </div>
-      </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto mb-4 space-y-4">
         {messages.length === 0 ? (
           <div className="text-center py-12">
-            <Bot className="h-12 w-12 mx-auto text-neutral-400 mb-4" />
+            <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center">
+              <Bot className="h-8 w-8 text-white" />
+            </div>
+            <h2 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
+              Welcome to flowcoin
+            </h2>
             <p className="text-neutral-600 dark:text-neutral-400">
               Start a conversation or drag an invoice here to begin
             </p>
@@ -746,7 +743,21 @@ Return ONLY a JSON object in this exact format:
                     thinking...
                   </TextShimmer>
                 ) : (
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  <div className={cn(
+                    "prose prose-sm max-w-none",
+                    "prose-p:my-2 prose-p:leading-relaxed",
+                    "prose-headings:my-2 prose-headings:font-semibold",
+                    "prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5",
+                    "prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs",
+                    "prose-strong:font-semibold",
+                    message.type === "user" 
+                      ? "prose-invert prose-p:text-white prose-headings:text-white prose-strong:text-white prose-code:bg-white/20 prose-code:text-white"
+                      : "dark:prose-invert prose-code:bg-neutral-200 dark:prose-code:bg-neutral-600"
+                  )}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
                 )}
                 
                 {/* Expense Card */}

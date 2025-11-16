@@ -50,26 +50,41 @@ export async function POST(request: NextRequest) {
                            filename.toLowerCase().endsWith('.jpg') || filename.toLowerCase().endsWith('.jpeg') ? 'image/jpeg' :
                            filename.toLowerCase().endsWith('.gif') ? 'image/gif' : 'image/webp';
 
+          // Build content array with proper typing
+          const content: any[] = [];
+          
+          if (isPdf) {
+            content.push({
+              type: 'document' as const,
+              source: {
+                type: 'base64' as const,
+                media_type: 'application/pdf' as const,
+                data: base64Data,
+              },
+            });
+          } else {
+            content.push({
+              type: 'image' as const,
+              source: {
+                type: 'base64' as const,
+                media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                data: base64Data,
+              },
+            });
+          }
+          
+          content.push({
+            type: 'text' as const,
+            text: 'Please extract all text content from this invoice document. Include company names, amounts, dates, email addresses, and any other relevant invoice information. Return the extracted text in a clear, structured format.'
+          });
+
           const message = await anthropic.messages.create({
             model: 'claude-sonnet-4-20250514',
             max_tokens: 4096,
             messages: [
               {
                 role: 'user',
-                content: [
-                  {
-                    type: isPdf ? 'document' : 'image',
-                    source: {
-                      type: 'base64',
-                      media_type: mediaType,
-                      data: base64Data,
-                    },
-                  },
-                  {
-                    type: 'text',
-                    text: 'Please extract all text content from this invoice document. Include company names, amounts, dates, email addresses, and any other relevant invoice information. Return the extracted text in a clear, structured format.'
-                  }
-                ],
+                content,
               },
             ],
           });

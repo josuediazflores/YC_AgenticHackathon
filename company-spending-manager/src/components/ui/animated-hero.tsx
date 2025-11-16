@@ -29,20 +29,20 @@ function Hero() {
       <div className="container mx-auto px-4">
         <div className="flex gap-8 py-20 lg:py-40 items-center justify-center flex-col">
           <div>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-sm">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-gradient-to-r from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 text-blue-700 dark:text-blue-300 text-sm font-medium">
               <Sparkles className="w-4 h-4" />
-              <span>AI-Powered Expense Management</span>
+              <span>flowcoin</span>
             </div>
           </div>
           <div className="flex gap-4 flex-col">
             <h1 className="text-5xl md:text-7xl max-w-3xl tracking-tighter text-center font-regular">
-              <span className="text-blue-600 dark:text-blue-400">Spending management</span>
+              <span className="text-neutral-900 dark:text-neutral-100">Spending made</span>
               <span className="relative flex w-full justify-center overflow-hidden text-center md:pb-4 md:pt-1">
                 &nbsp;
                 {titles.map((title, index) => (
                   <motion.span
                     key={index}
-                    className="absolute font-semibold text-blue-600 dark:text-blue-400"
+                    className="absolute font-semibold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent"
                     initial={{ opacity: 0, y: "-100" }}
                     transition={{ type: "spring", stiffness: 50 }}
                     animate={
@@ -61,13 +61,11 @@ function Hero() {
                   </motion.span>
                 ))}
               </span>
-              <span className="block mt-2">for your business</span>
             </h1>
 
             <p className="text-lg md:text-xl leading-relaxed tracking-tight text-neutral-600 dark:text-neutral-400 max-w-2xl text-center mx-auto">
-              Stop wasting time on manual expense tracking. Upload invoices, let AI extract the details, 
-              auto-categorize expenses, and send payments—all in one place. Streamline your company's 
-              spending management with intelligent automation.
+              Upload invoices, let AI extract details, auto-categorize expenses, and send USDC payments instantly. 
+              Intelligent spending management powered by AI.
             </p>
           </div>
           <div className="flex flex-row gap-3 flex-wrap justify-center">

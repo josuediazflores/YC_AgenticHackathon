@@ -12,7 +12,7 @@ from fastmcp import Client
 async def test_mcp_server():
     """Test all MCP tools"""
     
-    print("🧪 Testing Expense Management MCP Server\n")
+    print("🧪 Testing flowcoin MCP Server\n")
     print("📡 Connecting to http://localhost:8000/sse")
     print("   (Make sure the server is running: python server.py)\n")
     
