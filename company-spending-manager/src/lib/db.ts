@@ -18,13 +18,14 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
-  -- Expenses table  
+  -- Expenses table
   CREATE TABLE IF NOT EXISTS expenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category_id INTEGER,
     company_name TEXT,
     amount DECIMAL(10,2) NOT NULL,
     sales_email TEXT,
+    invoice_date DATE,
     due_date DATE,
     status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'cancelled')),
     invoice_url TEXT,
@@ -48,6 +49,7 @@ db.exec(`
   -- Create indexes for better performance
   CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category_id);
   CREATE INDEX IF NOT EXISTS idx_expenses_status ON expenses(status);
+  CREATE INDEX IF NOT EXISTS idx_expenses_invoice_date ON expenses(invoice_date);
   CREATE INDEX IF NOT EXISTS idx_expenses_due_date ON expenses(due_date);
   CREATE INDEX IF NOT EXISTS idx_payments_expense ON payments(expense_id);
 `);
@@ -107,19 +109,21 @@ export const expenseOperations = {
     company_name?: string;
     amount: number;
     sales_email?: string;
+    invoice_date?: string;
     due_date?: string;
     status?: string;
     invoice_url?: string;
   }) => {
     const stmt = db.prepare(`
-      INSERT INTO expenses (category_id, company_name, amount, sales_email, due_date, status, invoice_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO expenses (category_id, company_name, amount, sales_email, invoice_date, due_date, status, invoice_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     return stmt.run(
       data.category_id || null,
       data.company_name || null,
       data.amount,
       data.sales_email || null,
+      data.invoice_date || null,
       data.due_date || null,
       data.status || 'pending',
       data.invoice_url || null

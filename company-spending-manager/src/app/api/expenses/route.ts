@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { category_id, company_name, amount, sales_email, due_date, status, invoice_url } = body;
+    const { category_id, company_name, amount, sales_email, invoice_date, due_date, status, invoice_url } = body;
 
     if (!amount || amount <= 0) {
       return NextResponse.json(
@@ -39,11 +39,12 @@ export async function POST(request: NextRequest) {
       company_name,
       amount,
       sales_email,
+      invoice_date,
       due_date,
       status,
       invoice_url
     });
-    
+
     const newExpense = expenseOperations.getById(result.lastInsertRowid as number);
     return NextResponse.json(newExpense, { status: 201 });
   } catch (error) {
